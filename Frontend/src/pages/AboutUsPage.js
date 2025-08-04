@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import Footer from '../components/Footer';
 import '../styles/AboutUsPage.css';
 
 const AboutUsPage = () => {
@@ -53,6 +54,8 @@ const AboutUsPage = () => {
           </div>
         </div>
       </section>
+      
+      <Footer />
     </div>
   );
 };

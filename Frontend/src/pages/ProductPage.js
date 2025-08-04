@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
+import Footer from '../components/Footer';
 import '../styles/ProductPage.css';
 
 const ProductPage = () => {
@@ -69,6 +70,8 @@ const ProductPage = () => {
           </div>
         </div>
       </section>
+      
+      <Footer />
     </div>
   );
 };

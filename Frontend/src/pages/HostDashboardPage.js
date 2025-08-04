@@ -77,12 +77,12 @@ const HostDashboardPage = () => {
       <nav className="navbar">
         <div className="navbar-logo">Visitor Management</div>
         <ul className="navbar-links">
-          <li><Link to="/">Home</Link></li>
+          {/* <li><Link to="/">Home</Link></li>
           <li><Link to="/products">Products</Link></li>
           <li><Link to="/resources">Resources</Link></li>
           <li><Link to="/aboutus">About Us</Link></li>
           <li><Link to="/bookademo">Book a Demo</Link></li>
-          <li><Link to="/contactus">Contact Us</Link></li>
+          <li><Link to="/contactus">Contact Us</Link></li> */}
           <li>
             <button onClick={handleLogout} className="logout-btn">
               Logout

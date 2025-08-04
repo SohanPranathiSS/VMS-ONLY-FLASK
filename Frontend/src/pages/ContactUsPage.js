@@ -1,8 +1,59 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import Footer from '../components/Footer';
 import '../styles/ContactUsPage.css';
 
 const ContactUsPage = () => {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    message: ''
+  });
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState('');
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setSubmitMessage('');
+
+    try {
+      const apiBaseUrl = process.env.REACT_APP_API_BASE_URL || 'http://localhost:4000/api';
+      const response = await fetch(`${apiBaseUrl}/contact`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+      });
+
+      if (response.ok) {
+        setSubmitMessage('Message sent successfully! We will get back to you soon.');
+        setFormData({
+          name: '',
+          email: '',
+          message: ''
+        });
+      } else {
+        const errorData = await response.json();
+        setSubmitMessage(`Error: ${errorData.message || 'Failed to send message'}`);
+      }
+    } catch (error) {
+      console.error('Error submitting contact form:', error);
+      setSubmitMessage('Error: Failed to send message. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
   return (
     <div className="contactus-container">
       <nav className="navbar">
@@ -30,17 +81,51 @@ const ContactUsPage = () => {
       {/* Two-Column Section */}
       <section className="contactus-main-section">
         <div className="contactus-main-grid">
-          <form className="contactus-form">
+          <form className="contactus-form" onSubmit={handleSubmit}>
             <label>Name
-              <input type="text" placeholder="Your Name" required />
+              <input 
+                type="text" 
+                name="name"
+                value={formData.name}
+                onChange={handleInputChange}
+                placeholder="Your Name" 
+                required 
+              />
             </label>
             <label>Email
-              <input type="email" placeholder="Your Email" required />
+              <input 
+                type="email" 
+                name="email"
+                value={formData.email}
+                onChange={handleInputChange}
+                placeholder="Your Email" 
+                required 
+              />
             </label>
             <label>Message
-              <textarea placeholder="How can we help you?" rows="4" required></textarea>
+              <textarea 
+                name="message"
+                value={formData.message}
+                onChange={handleInputChange}
+                placeholder="How can we help you?" 
+                rows="4" 
+                required
+              />
             </label>
-            <button type="submit" className="contactus-btn">Send Message</button>
+            
+            {submitMessage && (
+              <div className={`submit-message ${submitMessage.includes('Error') ? 'error' : 'success'}`}>
+                {submitMessage}
+              </div>
+            )}
+            
+            <button 
+              type="submit" 
+              className="contactus-btn"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Sending...' : 'Send Message'}
+            </button>
           </form>
           <div className="contactus-info-card">
             <div className="contactus-info-icon">
@@ -53,6 +138,8 @@ const ContactUsPage = () => {
           </div>
         </div>
       </section>
+      
+      <Footer />
     </div>
   );
 };

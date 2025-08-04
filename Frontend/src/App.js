@@ -18,6 +18,11 @@ import SystemAdminPage from './pages/SystemAdminPage';
 // import ScanCard from './pages/scanCard';
 import ScanCard1 from './pages/ScanCard1';
 import ScanQr from './pages/ScanQr';
+import FeaturesPage from './pages/FeaturesPage';
+import FAQsPage from './pages/FAQsPage';
+import CareersPage from './pages/CareersPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsOfServicePage from './pages/TermsOfServicePage';
 import './App.css';
 
 function App() {
@@ -51,6 +56,11 @@ function App() {
         <Route path="/aboutus" element={<AboutUsPage />} />
         <Route path="/bookademo" element={<BookDemoPage />} />
         <Route path="/contactus" element={<ContactUsPage />} />
+        <Route path="/features" element={<FeaturesPage />} />
+        <Route path="/faqs" element={<FAQsPage />} />
+        <Route path="/careers" element={<CareersPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms" element={<TermsOfServicePage />} />
         <Route path="/multiVisitor" element={<MultiVisitorPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -70,6 +80,17 @@ function App() {
       <Route path="/scanQr" element={<ScanQr />} />
 
       {/* Public routes */}
+      <Route path="/" element={<HomePage />} />
+      <Route path="/products" element={<ProductPage />} />
+      <Route path="/resources" element={<ResourcePage />} />
+      <Route path="/aboutus" element={<AboutUsPage />} />
+      <Route path="/bookademo" element={<BookDemoPage />} />
+      <Route path="/contactus" element={<ContactUsPage />} />
+      <Route path="/features" element={<FeaturesPage />} />
+      <Route path="/faqs" element={<FAQsPage />} />
+      <Route path="/careers" element={<CareersPage />} />
+      <Route path="/privacy" element={<PrivacyPolicyPage />} />
+      <Route path="/terms" element={<TermsOfServicePage />} />
       <Route path="/multiVisitor" element={<MultiVisitorPage />} />
 
       <Route path="*" element={<Navigate to={userRole === 'admin' ? '/admin' : '/host'} replace />} />

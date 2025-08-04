@@ -85,6 +85,34 @@
   transform: translateY(-2px) scale(1.04);
   box-shadow: 0 4px 16px rgba(44,62,80,0.16);
 }
+
+.submit-message {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-align: center;
+  margin: 0.5rem 0;
+}
+
+.submit-message.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.submit-message.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.contactus-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .contactus-info-card {
   background: #fff;
   border-radius: 14px;

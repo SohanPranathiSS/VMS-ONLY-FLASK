@@ -10,20 +10,29 @@ import os
 from werkzeug.utils import secure_filename
 import google.generativeai as genai
 import json
+import base64
+from dotenv import load_dotenv
+import logging
+
+# Load .env file
+load_dotenv()
+
+# Suppress EasyOCR info logs to hide CPU warning
+logging.getLogger('easyocr').setLevel(logging.WARNING)
 
 app = Flask(__name__)
 # CORS configuration for both endpoints - allow your frontend domain
 CORS(app, resources={
-    r"/extract-id-number": {"origins": ["http://localhost:3000", "https://your-frontend-domain.onrender.com"]}, 
-    r"/upload": {"origins": ["http://localhost:3000", "https://your-frontend-domain.onrender.com"]}
+    r"/extract-id-number": {"origins": ["http://localhost:3000", "http://localhost:8000"]}, 
+    r"/upload": {"origins": ["http://localhost:3000", "http://localhost:8000"]}
 })
 
 # Configuration for file uploads
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
 
-# Initialize EasyOCR Reader (one-time setup for efficiency)
-reader = easyocr.Reader(['en'], gpu=False)
+# Initialize EasyOCR Reader
+reader = easyocr.Reader(['en'], gpu=False, model_storage_directory=None, download_enabled=True)
 
 # Configure Gemini API
 try:
@@ -313,6 +322,11 @@ def gemini_extract_data(image, prompt, extraction_type='business_card'):
         raise ValueError("Gemini API not initialized")
 
     try:
+        # Convert PIL Image to base64 for Gemini
+        buffered = io.BytesIO()
+        image.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
         # Default prompt for business card or ID card if none provided
         if not prompt:
             if extraction_type == 'business_card':
@@ -331,7 +345,12 @@ def gemini_extract_data(image, prompt, extraction_type='business_card'):
         # Prepare the Gemini request
         response = gemini_model.generate_content([
             {"text": prompt},
-            {"image": image}
+            {
+                "inline_data": {
+                    "mime_type": "image/png",
+                    "data": img_base64
+                }
+            }
         ])
 
         # Extract JSON from the response
@@ -344,7 +363,7 @@ def gemini_extract_data(image, prompt, extraction_type='business_card'):
             result = json.loads(json_str)
             return result
         except json.JSONDecodeError:
-            raise ValueError("Gemini returned invalid JSON")
+            raise ValueError(f"Gemini returned invalid JSON: {json_str}")
 
     except Exception as e:
         raise Exception(f"Gemini API error: {str(e)}")
@@ -451,7 +470,7 @@ def upload_image():
                 "email": email if email else "Not Found",
                 "personal_mobile_number": mobile_number if mobile_number else "Not Found",
                 "company_number": company_number if company_number else "Not Found",
-                "website": website if website else "Not Found",
+                "website": website if company else "Not Found",
                 "address": address if address else "Not Found",
             }
 

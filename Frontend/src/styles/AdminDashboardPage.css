@@ -99,23 +99,25 @@
   color: #2d3436;
 }
 
-/* Active Reports & Analytics link styling */
-.sidebar-menu .sidebar-link.reports-active {
-  background: #0984e3;
-  color: #fff;
-  font-weight: bold;
-  border-left: 4px solid #0056b3;
-}
+/* ===========================================
+   UNIFIED BLUE FAMILY SYSTEM FOR HIERARCHICAL MENU
+   =========================================== */
 
-/* Active Advanced Visitor Features link styling */
-.sidebar-menu .sidebar-link.advanced-visitors-active {
-  background: #0984e3;
-  color: #fff;
-  font-weight: bold;
-  border-left: 4px solid #0056b3;
-}
-
-/* Active System Administration link styling */
+/* ALL PARENT SECTIONS - Blue (#0984e3) */
+.sidebar-menu-btn[data-section="dashboard"],
+.sidebar-menu-btn[data-section="dashboard"].active,
+.sidebar-menu-btn[data-section="visitor-logs"],
+.sidebar-menu-btn[data-section="visitor-logs"].active,
+.sidebar-menu-btn[data-section="manage-users"],
+.sidebar-menu-btn[data-section="manage-users"].active,
+.sidebar-menu-btn[data-section="reports"],
+.sidebar-menu-btn[data-section="reports"].active,
+.sidebar-menu-btn[data-section="advanced-visitors"],
+.sidebar-menu-btn[data-section="advanced-visitors"].active,
+.sidebar-menu-btn[data-section="system-admin"],
+.sidebar-menu-btn[data-section="system-admin"].active,
+.sidebar-menu .sidebar-link.reports-active,
+.sidebar-menu .sidebar-link.advanced-visitors-active,
 .sidebar-menu .sidebar-link.system-admin-active {
   background: #0984e3;
   color: #fff;
@@ -123,6 +125,18 @@
   border-left: 4px solid #0056b3;
 }
 
+/* ALL PARENT SECTIONS - Hover State */
+.sidebar-menu-btn[data-section="dashboard"]:hover,
+.sidebar-menu-btn[data-section="visitor-logs"]:hover,
+.sidebar-menu-btn[data-section="manage-users"]:hover,
+.sidebar-menu-btn[data-section="reports"]:hover,
+.sidebar-menu-btn[data-section="advanced-visitors"]:hover,
+.sidebar-menu-btn[data-section="system-admin"]:hover {
+  background: #74b9ff;
+  color: #fff;
+}
+
+/* FALLBACK for buttons without data-section */
 .sidebar-menu button.active,
 .sidebar-menu button:hover,
 .sidebar-menu-btn:hover {
@@ -192,27 +206,80 @@
   align-items: center;
 }
 
-/* Submenu hover and active states */
+/* ===========================================
+   UNIFIED BLUE SUBMENU COLORS (LIGHT BLUE)
+   =========================================== */
+
+/* ALL SUBMENU CHILDREN - Light Blue (#74b9ff, #dde7ff) */
+.sidebar-submenu-btn[data-parent="dashboard"]:hover,
+.sidebar-submenu-btn[data-parent="visitor-logs"]:hover,
+.sidebar-submenu-btn[data-parent="manage-users"]:hover,
+.sidebar-submenu-btn[data-parent="reports"]:hover,
+.sidebar-submenu-btn[data-parent="advanced-visitors"]:hover,
+.sidebar-submenu-btn[data-parent="system-admin"]:hover {
+  background: #dde7ff;
+  color: #0984e3;
+}
+
+.sidebar-submenu-btn[data-parent="dashboard"].active,
+.sidebar-submenu-btn[data-parent="visitor-logs"].active,
+.sidebar-submenu-btn[data-parent="manage-users"].active,
+.sidebar-submenu-btn[data-parent="reports"].active,
+.sidebar-submenu-btn[data-parent="advanced-visitors"].active,
+.sidebar-submenu-btn[data-parent="system-admin"].active {
+  background: #74b9ff;
+  color: #fff;
+  border-left: 4px solid #0984e3;
+}
+
+/* FALLBACK Submenu hover and active states */
 .sidebar-submenu-btn:hover {
-  background: #e8f4ff;
+  background: #dde7ff;
   color: #0984e3;
 }
 
 .sidebar-submenu-btn.active {
-  background: #0984e3;
-  color: #fff;
-  border-left: 4px solid #0056b3;
-}
-
-.sidebar-sub-submenu-btn:hover {
-  background: #f0f8ff;
-  color: #0984e3;
-}
-
-.sidebar-sub-submenu-btn.active {
   background: #74b9ff;
   color: #fff;
   border-left: 4px solid #0984e3;
+}
+
+/* ===========================================
+   UNIFIED BLUE SUB-SUBMENU COLORS (LIGHTEST BLUE)
+   =========================================== */
+
+/* ALL SUB-SUBMENU GRANDCHILDREN - Lightest Blue (#f0f8ff, #dde7ff) */
+.sidebar-sub-submenu-btn[data-grandparent="dashboard"]:hover,
+.sidebar-sub-submenu-btn[data-grandparent="visitor-logs"]:hover,
+.sidebar-sub-submenu-btn[data-grandparent="manage-users"]:hover,
+.sidebar-sub-submenu-btn[data-grandparent="reports"]:hover,
+.sidebar-sub-submenu-btn[data-grandparent="advanced-visitors"]:hover,
+.sidebar-sub-submenu-btn[data-grandparent="system-admin"]:hover {
+  background: #f0f8ff;
+  color: #74b9ff;
+}
+
+.sidebar-sub-submenu-btn[data-grandparent="dashboard"].active,
+.sidebar-sub-submenu-btn[data-grandparent="visitor-logs"].active,
+.sidebar-sub-submenu-btn[data-grandparent="manage-users"].active,
+.sidebar-sub-submenu-btn[data-grandparent="reports"].active,
+.sidebar-sub-submenu-btn[data-grandparent="advanced-visitors"].active,
+.sidebar-sub-submenu-btn[data-grandparent="system-admin"].active {
+  background: #dde7ff;
+  color: #0984e3;
+  border-left: 4px solid #74b9ff;
+}
+
+/* FALLBACK Sub-submenu hover and active states */
+.sidebar-sub-submenu-btn:hover {
+  background: #f0f8ff;
+  color: #74b9ff;
+}
+
+.sidebar-sub-submenu-btn.active {
+  background: #dde7ff;
+  color: #0984e3;
+  border-left: 4px solid #74b9ff;
 }
 
 .admin-dashboard-container {
@@ -341,6 +408,38 @@
   flex: 1;
   text-align: center;
   min-width: 140px;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  background: #f8f9fa;
+}
+
+.stat-card[style*="cursor: pointer"]:hover {
+  border: 1px solid #0984e3;
+}
+
+.stat-card[style*="cursor: pointer"]:hover::before {
+  content: "Click to view details";
+  position: absolute;
+  top: -25px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 1000;
+}
+
+.stat-card[style*="cursor: pointer"]:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 }
 
 .stat-card h4 {

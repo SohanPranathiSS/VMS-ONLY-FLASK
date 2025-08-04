@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Link } from 'react-router-dom';
+import Footer from '../components/Footer';
 import '../styles/HomePage.css';
 
 const HomePage = () => {
@@ -8,6 +9,11 @@ const HomePage = () => {
   const handleBookDemo = () => {
     navigate('/bookademo');
   };
+
+  const handleFreeTrial = () => {
+    navigate('/register');
+  };
+
   return (
     <div className="home-container">
       <nav className="navbar">
@@ -221,46 +227,12 @@ const HomePage = () => {
   <h2>Ready to Modernize Your Front Desk?</h2>
   <p>Start your free trial or schedule a demo today to experience the power of a smart visitor management system.</p>
   <div className="cta-buttons">
-    <button className="hero-cta" >Start Your Free Trial</button>
+    <button className="hero-cta" onClick={handleFreeTrial}>Start Your Free Trial</button>
     <button className="hero-cta secondary" onClick={handleBookDemo}>Book a Demo</button>
   </div>
 </section>
 
-
-<footer className="footer">
-  <div className="footer-content">
-    <div className="footer-column">
-      <h4>Visitor Management</h4>
-      <p>Secure. Smart. Seamless.</p>
-    </div>
-    <div className="footer-column">
-      <h4>Product</h4>
-      <ul>
-        <li><a href="#features">Features</a></li>
-        <li><a href="#pricing">Pricing</a></li>
-        <li><a href="#faq">FAQs</a></li>
-      </ul>
-    </div>
-    <div className="footer-column">
-      <h4>Company</h4>
-      <ul>
-        <li><a href="/aboutus">About Us</a></li>
-        <li><a href="#careers">Careers</a></li>
-        <li><a href="/contactus">Contact</a></li>
-      </ul>
-    </div>
-    <div className="footer-column">
-      <h4>Legal</h4>
-      <ul>
-        <li><a href="#privacy">Privacy Policy</a></li>
-        <li><a href="#terms">Terms of Service</a></li>
-      </ul>
-    </div>
-  </div>
-  <div className="footer-bottom">
-    <p>© {new Date().getFullYear()} Visitor Management System. All rights reserved.</p>
-  </div>
-</footer>
+<Footer />
 
     </div>
   );

@@ -504,6 +504,130 @@ app.get('/api/verify-email', async (req, res) => {
 });
 
 
+/**
+ * @route   POST /api/book-demo
+ * @desc    Store demo booking request
+ * @access  Public
+ */
+app.post('/api/book-demo', async (req, res) => {
+  const { name, email, organization, preferred_date, message } = req.body;
+  
+  // Validate required fields
+  if (!name || !email || !organization || !preferred_date) {
+    return res.status(400).json({ 
+      message: 'Name, email, organization, and preferred date are required.' 
+    });
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ message: 'Please provide a valid email address.' });
+  }
+
+  try {
+    // Insert demo booking into database
+    const [result] = await pool.query(
+      'INSERT INTO book_demo (name, email, organization, preferred_date, message) VALUES (?, ?, ?, ?, ?)',
+      [name, email, organization, preferred_date, message || null]
+    );
+
+    // Send notification email to admin (optional)
+    try {
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: process.env.ADMIN_EMAIL || process.env.EMAIL_USER, // Admin email or fallback to sender
+        subject: 'New Demo Booking Request',
+        html: `
+          <h2>New Demo Booking Request</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Organization:</strong> ${organization}</p>
+          <p><strong>Preferred Date:</strong> ${preferred_date}</p>
+          <p><strong>Message:</strong> ${message || 'No message provided'}</p>
+          <p><strong>Submitted At:</strong> ${new Date().toLocaleString()}</p>
+        `
+      };
+
+      await transporter.sendMail(mailOptions);
+    } catch (emailError) {
+      console.error('Failed to send notification email:', emailError);
+      // Don't fail the request if email fails
+    }
+
+    res.status(201).json({ 
+      message: 'Demo booking submitted successfully! We will contact you soon.',
+      booking_id: result.insertId
+    });
+  } catch (error) {
+    console.error('Demo Booking Error:', error);
+    res.status(500).json({ message: 'Server error while processing demo booking.' });
+  }
+});
+
+
+/**
+ * @route   POST /api/contact
+ * @desc    Store contact form submission
+ * @access  Public
+ */
+app.post('/api/contact', async (req, res) => {
+  const { name, email, message } = req.body;
+  
+  // Validate required fields
+  if (!name || !email || !message) {
+    return res.status(400).json({ 
+      message: 'Name, email, and message are required.' 
+    });
+  }
+
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ message: 'Please provide a valid email address.' });
+  }
+
+  try {
+    // Insert contact form submission into database
+    const [result] = await pool.query(
+      'INSERT INTO contact_us (name, email, message) VALUES (?, ?, ?)',
+      [name, email, message]
+    );
+
+    // Send notification email to admin (optional)
+    try {
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: process.env.ADMIN_EMAIL || process.env.EMAIL_USER, // Admin email or fallback to sender
+        subject: 'New Contact Form Submission',
+        html: `
+          <h2>New Contact Form Submission</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Message:</strong></p>
+          <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">
+            ${message.replace(/\n/g, '<br>')}
+          </div>
+          <p><strong>Submitted At:</strong> ${new Date().toLocaleString()}</p>
+        `
+      };
+
+      await transporter.sendMail(mailOptions);
+    } catch (emailError) {
+      console.error('Failed to send notification email:', emailError);
+      // Don't fail the request if email fails
+    }
+
+    res.status(201).json({ 
+      message: 'Message sent successfully! We will get back to you soon.',
+      contact_id: result.insertId
+    });
+  } catch (error) {
+    console.error('Contact Form Error:', error);
+    res.status(500).json({ message: 'Server error while processing contact form.' });
+  }
+});
+
 
 /**
  * @route   POST /api/login
@@ -529,8 +653,12 @@ app.post('/api/login', async (req, res) => {
     // Company name is now directly available in the users table
     const companyInfo = user.company_name || null;
 
-    // Create a JWT with user ID and role, expiring in 1 day
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    // Create a JWT with user ID, role, and company_name, expiring in 1 day
+    const token = jwt.sign({ 
+      id: user.id, 
+      role: user.role, 
+      company_name: user.company_name 
+    }, process.env.JWT_SECRET, { expiresIn: '1d' });
     res.json({
       token,
       user: { 
@@ -1034,6 +1162,52 @@ app.get('/api/hosts', authenticateToken, async (req, res) => {
   }
 });
 
+/**
+ * @route   GET /api/contact-messages
+ * @desc    Get all contact form submissions (admin only)
+ * @access  Protected (admin only)
+ */
+app.get('/api/contact-messages', authenticateToken, async (req, res) => {
+  try {
+    // Only admins can view contact messages
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required.' });
+    }
+
+    const [messages] = await pool.query(
+      'SELECT id, name, email, message, created_at FROM contact_us ORDER BY created_at DESC'
+    );
+
+    res.json(messages);
+  } catch (error) {
+    console.error('Error fetching contact messages:', error);
+    res.status(500).json({ message: 'Server error while fetching contact messages.' });
+  }
+});
+
+/**
+ * @route   GET /api/demo-bookings
+ * @desc    Get all demo booking requests (admin only)
+ * @access  Protected (admin only)
+ */
+app.get('/api/demo-bookings', authenticateToken, async (req, res) => {
+  try {
+    // Only admins can view demo bookings
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required.' });
+    }
+
+    const [bookings] = await pool.query(
+      'SELECT id, name, email, organization, preferred_date, message, created_at FROM book_demo ORDER BY created_at DESC'
+    );
+
+    res.json(bookings);
+  } catch (error) {
+    console.error('Error fetching demo bookings:', error);
+    res.status(500).json({ message: 'Server error while fetching demo bookings.' });
+  }
+});
+
 // ============== REPORTING & ANALYTICS ENDPOINTS ==============
 
 /**
@@ -1482,23 +1656,48 @@ app.post('/api/visitors/pre-register', authenticateToken, async (req, res) => {
       companyId = 1;
     }
 
+    // Get the admin's company name for company_to_visit
+    let adminCompanyName = 'Default Company'; // Default fallback
+    try {
+      const [adminUser] = await pool.query(
+        'SELECT company_name FROM users WHERE id = ?',
+        [req.user.id]
+      );
+      if (adminUser.length && adminUser[0].company_name) {
+        adminCompanyName = adminUser[0].company_name;
+      } else {
+        // Try to get from companies table if not in users table
+        const [companyData] = await pool.query(
+          'SELECT company_name FROM companies WHERE id = ?',
+          [companyId]
+        );
+        if (companyData.length && companyData[0].company_name) {
+          adminCompanyName = companyData[0].company_name;
+        }
+      }
+    } catch (companyError) {
+      console.warn('Could not retrieve admin company name, using default:', companyError.message);
+    }
+
     const qrCode = `VMS-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     // Handle empty date values - convert empty strings to null
     const cleanRecurringEndDate = recurringEndDate && recurringEndDate.trim() !== '' ? recurringEndDate : null;
     const cleanRecurringPattern = recurringPattern && recurringPattern.trim() !== '' ? recurringPattern : null;
+    // Handle empty duration - convert empty strings to null for numeric fields
+    const cleanDuration = duration && duration.trim() !== '' ? duration : null;
 
     const [result] = await pool.query(`
       INSERT INTO pre_registrations (
         company_id, visitor_name, visitor_email, visitor_phone, visitor_company,
-        host_name, visit_date, visit_time, purpose, duration,
+        company_to_visit, host_id, host_name, visit_date, visit_time, purpose, duration,
         is_recurring, recurring_pattern, recurring_end_date,
         special_requirements, emergency_contact, vehicle_number, 
         number_of_visitors, qr_code, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `, [
       companyId, visitorName, visitorEmail, visitorPhone, visitorCompany,
-      hostName, visitDate, visitTime, purpose, duration,
+      adminCompanyName, req.user.id, hostName, visitDate, visitTime, purpose, cleanDuration,
       isRecurring, cleanRecurringPattern, cleanRecurringEndDate,
       specialRequirements, emergencyContact, vehicleNumber,
       numberOfVisitors, qrCode
@@ -1512,7 +1711,22 @@ app.post('/api/visitors/pre-register', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Pre-registration error:', error);
-    res.status(500).json({ message: 'Failed to pre-register visitor.' });
+    
+    // Provide more specific error messages based on the error type
+    let errorMessage = 'Failed to pre-register visitor.';
+    
+    if (error.code === 'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD') {
+      errorMessage = 'Invalid data format. Please check the duration field and ensure it contains valid data.';
+    } else if (error.code === 'ER_DUP_ENTRY') {
+      errorMessage = 'A visitor with this information already exists.';
+    } else if (error.code === 'ER_BAD_NULL_ERROR') {
+      errorMessage = 'Required field is missing. Please fill in all required information.';
+    }
+    
+    res.status(500).json({ 
+      message: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -1680,36 +1894,29 @@ app.post('/api/visitors/qr-checkin', authenticateToken, async (req, res) => {
 });// Get pre-registrations
 app.get('/api/visitors/pre-registrations', authenticateToken, async (req, res) => {
   try {
-    // Handle legacy users without company_id by defaulting to 1
-    let companyId = req.user.company_id;
-    if (!companyId) {
-      // Update the user's company_id in database but preserve existing company_name
-      await pool.query('UPDATE users SET company_id = 1 WHERE id = ?', 
-        [req.user.id]);
-      companyId = 1;
-    }
+    console.log('🔍 Fetching pre-registrations for user:', req.user);
     
+    // Get pre-registrations where company_to_visit matches the current user's company_name
+    console.log('� Fetching pre-registrations by matching company_to_visit with user company_name');
     const [preRegistrations] = await pool.query(`
-      SELECT pr.*, 
-        CASE 
-          WHEN v.check_out_time IS NOT NULL THEN 'completed'
-          WHEN v.check_in_time IS NOT NULL THEN 'in_progress'
-          WHEN CONCAT(pr.visit_date, ' ', pr.visit_time) > NOW() THEN 'scheduled'
-          ELSE 'missed'
-        END as status,
-        v.check_in_time, v.check_out_time
+      SELECT pr.* 
       FROM pre_registrations pr
-      LEFT JOIN visits v ON pr.visitor_email = v.visitor_email 
-        AND DATE(v.check_in_time) = pr.visit_date
-      WHERE pr.company_id = ?
-      ORDER BY pr.visit_date DESC, pr.visit_time DESC
-    `, [companyId]);
+      INNER JOIN users u ON pr.company_to_visit = u.company_name
+      WHERE u.id = ?
+      ORDER BY pr.created_at DESC
+    `, [req.user.id]);
 
+    console.log('✅ Pre-registrations found:', preRegistrations.length);
+    console.log('📋 Sample data:', preRegistrations.slice(0, 2));
+    
     res.json(preRegistrations);
 
   } catch (error) {
-    console.error('Pre-registrations fetch error:', error);
-    res.status(500).json({ message: 'Failed to fetch pre-registrations.' });
+    console.error('❌ Pre-registrations fetch error:', error);
+    res.status(500).json({ 
+      message: 'Failed to fetch pre-registrations.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -1775,19 +1982,23 @@ app.get('/api/pre-registrations/:preRegId/badge', authenticateToken, async (req,
   try {
     const { preRegId } = req.params;
     
-    // Handle legacy users without company_id by defaulting to 1
-    let companyId = req.user.company_id;
-    if (!companyId) {
-      await pool.query('UPDATE users SET company_id = 1 WHERE id = ?', 
-        [req.user.id]);
-      companyId = 1;
+    // Get the admin's company name from companies table
+    const [adminCompany] = await pool.query(
+      'SELECT company_name FROM companies WHERE id = ?',
+      [req.user.id]
+    );
+
+    if (!adminCompany.length || !adminCompany[0].company_name) {
+      return res.status(400).json({ message: 'Admin company information not found.' });
     }
 
-    // Get pre-registration data
+    const adminCompanyName = adminCompany[0].company_name;
+
+    // Get pre-registration data with company filtering using company_to_visit
     const [preRegistration] = await pool.query(`
-      SELECT * FROM pre_registrations 
-      WHERE id = ? AND company_id = ?
-    `, [preRegId, companyId]);
+      SELECT pr.* FROM pre_registrations pr
+      WHERE pr.id = ? AND pr.company_to_visit = ?
+    `, [preRegId, adminCompanyName]);
 
     if (preRegistration.length === 0) {
       return res.status(404).json({ message: 'Pre-registration not found.' });
@@ -1999,18 +2210,18 @@ app.get('/api/visitors/blacklisted', authenticateToken, async (req, res) => {
       return res.status(403).json({ message: 'Admin access required.' });
     }
 
-    // Get the admin's company name
-    const [adminUser] = await pool.query(
-      'SELECT company_name FROM users WHERE id = ?',
-      [req.user.id]
-    );
+    const { limit = 100, startDate, endDate, visitorName, visitorId } = req.query;
 
-    if (!adminUser.length || !adminUser[0].company_name) {
-      return res.status(400).json({ message: 'Admin company information not found.' });
+    // Get the admin's company name from the JWT token
+    const adminCompanyName = req.user.company_name;
+
+    if (!adminCompanyName) {
+      return res.status(400).json({ message: 'Admin company information not found in token.' });
     }
 
-    const adminCompanyName = adminUser[0].company_name;
-    const { limit = 100, startDate, endDate, visitorName, visitorId } = req.query;
+    console.log('🏢 Admin company name:', adminCompanyName);
+    
+    
 
     // Get blacklisted visitors who have visited the admin's company
     let query = `
@@ -2074,30 +2285,34 @@ app.get('/api/visitors/blacklisted', authenticateToken, async (req, res) => {
 // Get recurring visits
 app.get('/api/visitors/recurring', authenticateToken, async (req, res) => {
   try {
-    // Handle legacy users without company_id by defaulting to 1
-    let companyId = req.user.company_id;
-    if (!companyId) {
-      await pool.query('UPDATE users SET company_id = 1 WHERE id = ?', 
-        [req.user.id]);
-      companyId = 1;
+    // Get the admin's company name from companies table
+    const [adminCompany] = await pool.query(
+      'SELECT company_name FROM companies WHERE id = ?',
+      [req.user.id]
+    );
+
+    if (!adminCompany.length || !adminCompany[0].company_name) {
+      return res.status(400).json({ message: 'Admin company information not found.' });
     }
 
+    const adminCompanyName = adminCompany[0].company_name;
+
     const [recurringVisits] = await pool.query(`
-      SELECT *, 
+      SELECT pr.*, 
         CASE 
-          WHEN recurring_pattern = 'daily' THEN DATE_ADD(visit_date, INTERVAL 1 DAY)
-          WHEN recurring_pattern = 'weekly' THEN DATE_ADD(visit_date, INTERVAL 1 WEEK)
-          WHEN recurring_pattern = 'monthly' THEN DATE_ADD(visit_date, INTERVAL 1 MONTH)
-          ELSE visit_date
+          WHEN pr.recurring_pattern = 'daily' THEN DATE_ADD(pr.visit_date, INTERVAL 1 DAY)
+          WHEN pr.recurring_pattern = 'weekly' THEN DATE_ADD(pr.visit_date, INTERVAL 1 WEEK)
+          WHEN pr.recurring_pattern = 'monthly' THEN DATE_ADD(pr.visit_date, INTERVAL 1 MONTH)
+          ELSE pr.visit_date
         END as next_visit_date,
         CASE 
-          WHEN recurring_end_date IS NULL OR recurring_end_date > CURDATE() THEN 'active'
+          WHEN pr.recurring_end_date IS NULL OR pr.recurring_end_date > CURDATE() THEN 'active'
           ELSE 'expired'
         END as recurring_status
-      FROM pre_registrations 
-      WHERE company_id = ? AND is_recurring = TRUE
-      ORDER BY visit_date DESC
-    `, [companyId]);
+      FROM pre_registrations pr
+      WHERE pr.company_to_visit = ? AND pr.is_recurring = TRUE
+      ORDER BY pr.visit_date DESC
+    `, [adminCompanyName]);
 
     res.json(recurringVisits);
 
@@ -2113,13 +2328,17 @@ app.put('/api/visitors/recurring/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { recurringPattern, recurringEndDate, status } = req.body;
     
-    // Handle legacy users without company_id by defaulting to 1
-    let companyId = req.user.company_id;
-    if (!companyId) {
-      await pool.query('UPDATE users SET company_id = 1 WHERE id = ?', 
-        [req.user.id]);
-      companyId = 1;
+    // Get the admin's company name from companies table
+    const [adminCompany] = await pool.query(
+      'SELECT company_name FROM companies WHERE id = ?',
+      [req.user.id]
+    );
+
+    if (!adminCompany.length || !adminCompany[0].company_name) {
+      return res.status(400).json({ message: 'Admin company information not found.' });
     }
+
+    const adminCompanyName = adminCompany[0].company_name;
 
     let updateQuery = 'UPDATE pre_registrations SET ';
     const params = [];
@@ -2147,8 +2366,8 @@ app.put('/api/visitors/recurring/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'No updates provided.' });
     }
     
-    updateQuery += updates.join(', ') + ' WHERE id = ? AND company_id = ?';
-    params.push(id, companyId);
+    updateQuery += updates.join(', ') + ' WHERE id = ? AND company_to_visit = ?';
+    params.push(id, adminCompanyName);
 
     const [result] = await pool.query(updateQuery, params);
 
@@ -2169,19 +2388,23 @@ app.post('/api/visitors/recurring/:id/generate', authenticateToken, async (req, 
   try {
     const { id } = req.params;
     
-    // Handle legacy users without company_id by defaulting to 1
-    let companyId = req.user.company_id;
-    if (!companyId) {
-      await pool.query('UPDATE users SET company_id = 1 WHERE id = ?', 
-        [req.user.id]);
-      companyId = 1;
+    // Get the admin's company name from users table
+    const [adminUser] = await pool.query(
+      'SELECT company_name FROM users WHERE id = ?',
+      [req.user.id]
+    );
+
+    if (!adminUser.length || !adminUser[0].company_name) {
+      return res.status(400).json({ message: 'Admin company information not found.' });
     }
 
-    // Get the recurring visit template
+    const adminCompanyName = adminUser[0].company_name;
+
+    // Get the recurring visit template with company filtering using company_to_visit
     const [template] = await pool.query(`
-      SELECT * FROM pre_registrations 
-      WHERE id = ? AND company_id = ? AND is_recurring = TRUE
-    `, [id, companyId]);
+      SELECT pr.* FROM pre_registrations pr
+      WHERE pr.id = ? AND pr.company_to_visit = ? AND pr.is_recurring = TRUE
+    `, [id, adminCompanyName]);
 
     if (template.length === 0) {
       return res.status(404).json({ message: 'Recurring visit template not found.' });
@@ -2197,17 +2420,33 @@ app.post('/api/visitors/recurring/:id/generate', authenticateToken, async (req, 
     for (let i = 0; i < maxInstances && currentDate <= endDate; i++) {
       const qrCode = `VMS-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
+      // Use existing company_to_visit from template or get admin's company name
+      let companyToVisit = visit.company_to_visit || 'Default Company';
+      if (!visit.company_to_visit) {
+        try {
+          const [adminUser] = await pool.query(
+            'SELECT company_name FROM users WHERE id = ?',
+            [req.user.id]
+          );
+          if (adminUser.length && adminUser[0].company_name) {
+            companyToVisit = adminUser[0].company_name;
+          }
+        } catch (companyError) {
+          console.warn('Could not retrieve admin company name for recurring visit, using default:', companyError.message);
+        }
+      }
+      
       const [result] = await pool.query(`
         INSERT INTO pre_registrations (
           company_id, visitor_name, visitor_email, visitor_phone, visitor_company,
-          host_name, visit_date, visit_time, purpose, duration,
+          company_to_visit, host_id, host_name, visit_date, visit_time, purpose, duration,
           is_recurring, recurring_pattern, recurring_end_date,
           special_requirements, emergency_contact, vehicle_number, 
           number_of_visitors, qr_code, status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         visit.company_id, visit.visitor_name, visit.visitor_email, visit.visitor_phone, visit.visitor_company,
-        visit.host_name, currentDate.toISOString().split('T')[0], visit.visit_time, visit.purpose, visit.duration,
+        companyToVisit, visit.host_id, visit.host_name, currentDate.toISOString().split('T')[0], visit.visit_time, visit.purpose, visit.duration,
         false, null, null, // Individual instances are not recurring
         visit.special_requirements, visit.emergency_contact, visit.vehicle_number,
         visit.number_of_visitors, qrCode, 'pending'
