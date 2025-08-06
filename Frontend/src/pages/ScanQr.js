@@ -312,12 +312,12 @@ const ScanQr = () => {
       </div>
 
       <div className="scan-modes">
-        <button 
+        {/* <button 
           className={`mode-btn ${scanMode === 'camera' ? 'active' : ''}`}
           onClick={() => setScanMode('camera')}
         >
           📷 Camera Scan
-        </button>
+        </button> */}
         <button 
           className={`mode-btn ${scanMode === 'manual' ? 'active' : ''}`}
           onClick={() => setScanMode('manual')}
@@ -325,8 +325,8 @@ const ScanQr = () => {
           ⌨️ Manual Entry
         </button>
       </div>
-
-      {/* Camera Scanning Mode */}
+{/* 
+      
       {scanMode === 'camera' && (
         <div className="camera-section">
           <div className="camera-container">
@@ -383,7 +383,7 @@ const ScanQr = () => {
             )}
           </div>
           
-          {/* Display captured image if available */}
+      
           {capturedImage && (
             <div className="captured-image-section">
               <h4>📸 Captured Image:</h4>
@@ -403,7 +403,7 @@ const ScanQr = () => {
             </div>
           )}
           
-          {/* Debug Information */}
+      
           {debugMode && (
             <div className="debug-section" style={{ 
               background: '#f8f9fa', 
@@ -440,6 +440,8 @@ const ScanQr = () => {
           )}
         </div>
       )}
+
+*/}
 
       {/* Manual Entry Mode */}
       {scanMode === 'manual' && (
@@ -487,7 +489,7 @@ const ScanQr = () => {
         </div>
       )}
 
-      {/* Instructions */}
+      {/* Instructions 
       <div className="instructions">
         <h3>📋 Instructions:</h3>
         <ul>
@@ -511,12 +513,14 @@ const ScanQr = () => {
           <li>• If camera scan fails, use "Manual Entry" mode</li>
         </ul>
       </div>
+      */}
 
-      {/* QR Code Status */}
+      {/* QR Code Status 
       <div className="qr-status">
         <p>✅ <strong>QR Scanner Ready:</strong> jsQR library installed and active</p>
         <p>📱 Start camera → Position QR code → Capture & Scan</p>
       </div>
+      */}
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { registerCompany } from '../utils/apiService'; // UPDATED
+import Footer from '../components/Footer';
 import '../styles/RegistrationPage.css';
 
 const RegistrationPage = () => {
@@ -75,7 +76,9 @@ const RegistrationPage = () => {
       
       <nav className="navbar">
         {/* Navbar remains the same */}
-         <div className="navbar-logo">Visitor Management</div>
+        <div className="navbar-logo">
+          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
+        </div>
         <ul className="navbar-links">
           <li><Link to="/">Home</Link></li>
           <li><Link to="/products">Products</Link></li>
@@ -171,7 +174,10 @@ const RegistrationPage = () => {
 
         </div>
       </div>
+     
+      <Footer />
     </div>
+    
   );
 };
 

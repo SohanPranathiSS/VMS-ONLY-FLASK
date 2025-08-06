@@ -43,7 +43,9 @@ const ResourcePage = () => {
   return (
     <div className="resource-container">
       <nav className="navbar">
-        <div className="navbar-logo">Visitor Management</div>
+       <div className="navbar-logo">
+          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
+        </div>
         <ul className="navbar-links">
           <li><Link to="/">Home</Link></li>
           <li><Link to="/products">Products</Link></li>

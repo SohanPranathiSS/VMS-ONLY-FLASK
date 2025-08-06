@@ -1,0 +1,56 @@
+# Flask Backend for Visitor Management System
+# Core Flask Dependencies
+Flask==2.3.3
+flask-cors==4.0.0
+Werkzeug==2.3.7
+
+# Authentication & Security
+PyJWT==2.8.0
+python-dotenv==1.0.0
+
+# Database
+mysql-connector-python==8.2.0
+
+# Excel/Document Processing
+openpyxl==3.1.2
+pandas==2.1.3
+
+# PDF Generation (optional)
+# weasyprint==60.2  # Uncomment if you want PDF export functionality
+reportlab==4.2.2  # Alternative PDF generation library
+
+# Email Support
+# Built-in smtplib is used
+
+# Image Processing (for ML features)
+Pillow==10.1.0
+numpy==1.25.2
+opencv-python-headless==4.8.1.78
+easyocr==1.7.0
+
+# Google AI (for ML features)
+google-generativeai==0.3.2
+
+# Production Server
+gunicorn==21.2.0
+
+# Development/Testing (optional)
+requests==2.31.0
+
+# System Dependencies
+# These are built-in Python modules used:
+# - os
+# - json
+# - logging
+# - functools
+# - datetime
+# - tempfile
+# - random
+# - string
+# - base64
+# - io
+# - csv
+# - uuid
+# - smtplib
+# - email.mime.text
+# - email.mime.multipart

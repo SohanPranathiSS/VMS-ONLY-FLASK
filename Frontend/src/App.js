@@ -23,6 +23,10 @@ import FAQsPage from './pages/FAQsPage';
 import CareersPage from './pages/CareersPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import TermsOfServicePage from './pages/TermsOfServicePage';
+import AdminPrivacyPolicyPage from './pages/AdminPrivacyPolicyPage';
+import AdminTermsOfServicePage from './pages/AdminTermsOfServicePage';
+import HostPrivacyPolicyPage from './pages/HostPrivacyPolicyPage';
+import HostTermsOfServicePage from './pages/HostTermsOfServicePage';
 import './App.css';
 
 function App() {
@@ -61,6 +65,10 @@ function App() {
         <Route path="/careers" element={<CareersPage />} />
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsOfServicePage />} />
+        <Route path="/admin/privacy-policy" element={<AdminPrivacyPolicyPage />} />
+        <Route path="/admin/terms-of-service" element={<AdminTermsOfServicePage />} />
+        <Route path="/host/privacy-policy" element={<HostPrivacyPolicyPage />} />
+        <Route path="/host/terms-of-service" element={<HostTermsOfServicePage />} />
         <Route path="/multiVisitor" element={<MultiVisitorPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -72,7 +80,9 @@ function App() {
     <Routes>
       <Route path="/checkin" element={<VisitorCheckInPage />} />
       <Route path="/host" element={<HostDashboardPage />} />
+      <Route path="/host-dashboard" element={<HostDashboardPage />} />
       <Route path="/admin" element={<AdminDashboardPage />} />
+      <Route path="/admin-dashboard" element={<AdminDashboardPage />} />
       <Route path="/reports" element={<ReportsPage />} />
       <Route path="/advanced-visitors" element={<AdvancedVisitorPage />} />
       <Route path="/system-admin" element={<SystemAdminPage />} />
@@ -91,6 +101,10 @@ function App() {
       <Route path="/careers" element={<CareersPage />} />
       <Route path="/privacy" element={<PrivacyPolicyPage />} />
       <Route path="/terms" element={<TermsOfServicePage />} />
+      <Route path="/admin/privacy-policy" element={<AdminPrivacyPolicyPage />} />
+      <Route path="/admin/terms-of-service" element={<AdminTermsOfServicePage />} />
+      <Route path="/host/privacy-policy" element={<HostPrivacyPolicyPage />} />
+      <Route path="/host/terms-of-service" element={<HostTermsOfServicePage />} />
       <Route path="/multiVisitor" element={<MultiVisitorPage />} />
 
       <Route path="*" element={<Navigate to={userRole === 'admin' ? '/admin' : '/host'} replace />} />

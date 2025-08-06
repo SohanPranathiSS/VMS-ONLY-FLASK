@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getVisits, checkOutVisit } from '../utils/apiService';
+import HostFooter from '../components/HostFooter';
 import '../styles/HostDashboardPage.css';
 
 const HostDashboardPage = () => {
@@ -181,6 +182,8 @@ const HostDashboardPage = () => {
           </div>
         )}
       </div>
+      
+      <HostFooter />
     </div>
   );
 };

@@ -6,8 +6,8 @@
     "axios": "^1.4.0",
     "chart.js": "^4.5.0",
     "file-saver": "^2.0.5",
-    "jspdf": "^2.5.1",
-    "jspdf-autotable": "^3.6.0",
+    "jspdf": "^3.0.1",
+    "jspdf-autotable": "^5.0.2",
     "jsqr": "^1.4.0",
     "jwt-decode": "^3.1.2",
     "qrcode.react": "^4.2.0",
@@ -21,7 +21,16 @@
   },
   "scripts": {
     "start": "react-scripts start",
-    "build": "react-scripts build"
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "test:coverage": "react-scripts test --coverage --watchAll=false",
+    "test:ci": "CI=true react-scripts test --coverage --watchAll=false",
+    "lint": "eslint src --ext .js,.jsx",
+    "lint:fix": "eslint src --ext .js,.jsx --fix",
+    "format": "prettier --write src/**/*.{js,jsx,css,md}",
+    "format:check": "prettier --check src/**/*.{js,jsx,css,md}",
+    "cypress:open": "cypress open",
+    "cypress:run": "cypress run"
   },
   "browserslist": {
     "production": [
@@ -34,5 +43,14 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "cypress": "^14.5.3",
+    "eslint": "^9.32.0",
+    "prettier": "^3.6.2",
+    "tailwindcss": "^4.1.11"
   }
 }

@@ -1,0 +1,52 @@
+/* Host Footer Styling */
+.host-footer {
+  background-color: #2c3e50;
+  color: white;
+  padding: 20px 0;
+  margin-top: auto;
+  width: 100%;
+}
+
+.host-footer-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  flex-wrap: wrap;
+}
+
+.host-footer-links {
+  display: flex;
+  gap: 30px;
+}
+
+.host-footer-link {
+  color: #ecf0f1;
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color 0.3s ease;
+}
+
+.host-footer-link:hover {
+  color: #3498db;
+}
+
+.host-footer-copyright {
+  font-size: 0.9rem;
+  color: #bdc3c7;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .host-footer-content {
+    flex-direction: column;
+    gap: 15px;
+    text-align: center;
+  }
+  
+  .host-footer-links {
+    gap: 20px;
+  }
+}

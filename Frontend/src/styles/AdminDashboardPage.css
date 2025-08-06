@@ -103,37 +103,29 @@
    UNIFIED BLUE FAMILY SYSTEM FOR HIERARCHICAL MENU
    =========================================== */
 
-/* ALL PARENT SECTIONS - Blue (#0984e3) */
-.sidebar-menu-btn[data-section="dashboard"],
-.sidebar-menu-btn[data-section="dashboard"].active,
-.sidebar-menu-btn[data-section="visitor-logs"],
-.sidebar-menu-btn[data-section="visitor-logs"].active,
-.sidebar-menu-btn[data-section="manage-users"],
-.sidebar-menu-btn[data-section="manage-users"].active,
-.sidebar-menu-btn[data-section="reports"],
-.sidebar-menu-btn[data-section="reports"].active,
-.sidebar-menu-btn[data-section="advanced-visitors"],
-.sidebar-menu-btn[data-section="advanced-visitors"].active,
-.sidebar-menu-btn[data-section="system-admin"],
-.sidebar-menu-btn[data-section="system-admin"].active,
-.sidebar-menu .sidebar-link.reports-active,
-.sidebar-menu .sidebar-link.advanced-visitors-active,
-.sidebar-menu .sidebar-link.system-admin-active {
-  background: #0984e3;
-  color: #fff;
+
+/* ALL PARENT SECTIONS - White background, dark text, subtle border */
+.sidebar-menu-btn[data-section],
+.sidebar-menu-btn[data-section].active {
+  background: #fff;
+  color: #2d3436;
   font-weight: bold;
-  border-left: 4px solid #0056b3;
+  border-left: 4px solid #e0e7ef;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  position: relative;
 }
 
+.sidebar-menu-btn[data-section].active {
+  background: #f5f6fa;
+  color: #0984e3;
+  border-left: 4px solid #0984e3;
+}
+
+
 /* ALL PARENT SECTIONS - Hover State */
-.sidebar-menu-btn[data-section="dashboard"]:hover,
-.sidebar-menu-btn[data-section="visitor-logs"]:hover,
-.sidebar-menu-btn[data-section="manage-users"]:hover,
-.sidebar-menu-btn[data-section="reports"]:hover,
-.sidebar-menu-btn[data-section="advanced-visitors"]:hover,
-.sidebar-menu-btn[data-section="system-admin"]:hover {
-  background: #74b9ff;
-  color: #fff;
+.sidebar-menu-btn[data-section]:hover {
+  background: #f5f6fa;
+  color: #0984e3;
 }
 
 /* FALLBACK for buttons without data-section */
@@ -148,6 +140,7 @@
 .sidebar-menu-btn.active {
   font-weight: bold;
 }
+
 
 /* Hierarchical Menu Styles */
 .sidebar-submenu {
@@ -168,13 +161,14 @@
   margin-top: 5px;
 }
 
+/* Submenu (child) - light background similar to parent, but lighter */
 .sidebar-submenu-btn {
   width: 100%;
   padding: 8px 8px;
   border: none;
-  background: none;
+  background: #f8f9fa;
   text-align: left;
-  color: #636e72;
+  color: #2d3436;
   font-size: 12px;
   cursor: pointer;
   border-radius: 4px;
@@ -182,42 +176,99 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+  border-left: 4px solid #f0f0f0;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.02);
 }
 
+.sidebar-submenu-btn.active {
+  background: #f0f3f7;
+  color: #0984e3;
+  border-left: 4px solid #0984e3;
+}
+
+.sidebar-submenu-btn:hover {
+  background: #f0f3f7;
+  color: #0984e3;
+}
+
+/* Sub-submenu (grandchild) - very light background similar to parent style */
 .sidebar-sub-submenu-btn {
   width: 100%;
-  /* padding: 6px 6px; */
   border: none;
-  background: none;
+  background: #fafbfc;
   text-align: left;
-  color: #74b9ff;
-  font-size: 9px;
+  color: #2d3436;
+  font-size: 10px;
   cursor: pointer;
-  /* border-radius: 4px; */
   transition: all 0.3s ease;
   font-weight: normal;
+  padding: 6px 6px;
+  position: relative;
+  border-radius: 4px;
+  border-left: 4px solid #f5f5f5;
 }
 
-/* Main menu icons and spacing */
+.sidebar-sub-submenu-btn.active {
+  background: #f5f6fa;
+  color: #0984e3;
+  border-left: 4px solid #74b9ff;
+}
+
+.sidebar-sub-submenu-btn:hover {
+  background: #f5f6fa;
+  color: #0984e3;
+}
+
+
+/* Main menu icons and spacing, add chevron icon for parent */
 .sidebar-menu-btn {
   font-weight: 600;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+}
+
+/* Chevron/arrow icon for parent (CSS-based, can be replaced with SVG/FontAwesome) */
+.sidebar-menu-btn .chevron {
+  display: inline-block;
+  margin-left: 8px;
+  transition: transform 0.2s;
+  font-size: 14px;
+  color: #b2bec3;
+}
+
+.sidebar-menu-btn[aria-expanded="true"] .chevron {
+  transform: rotate(90deg);
+  color: #0984e3;
+}
+
+/* Chevron for submenu (child) */
+.sidebar-submenu-btn .chevron {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 12px;
+  color: #b2bec3;
+  transition: transform 0.2s;
+}
+.sidebar-submenu-btn[aria-expanded="true"] .chevron {
+  transform: rotate(90deg);
+  color: #0984e3;
 }
 
 /* ===========================================
-   UNIFIED BLUE SUBMENU COLORS (LIGHT BLUE)
+   UNIFIED NEUTRAL COLOR SUBMENU SYSTEM
    =========================================== */
 
-/* ALL SUBMENU CHILDREN - Light Blue (#74b9ff, #dde7ff) */
+/* ALL SUBMENU CHILDREN - Light neutral colors similar to parent */
 .sidebar-submenu-btn[data-parent="dashboard"]:hover,
 .sidebar-submenu-btn[data-parent="visitor-logs"]:hover,
 .sidebar-submenu-btn[data-parent="manage-users"]:hover,
 .sidebar-submenu-btn[data-parent="reports"]:hover,
 .sidebar-submenu-btn[data-parent="advanced-visitors"]:hover,
 .sidebar-submenu-btn[data-parent="system-admin"]:hover {
-  background: #dde7ff;
+  background: #f0f3f7;
   color: #0984e3;
 }
 
@@ -227,36 +278,36 @@
 .sidebar-submenu-btn[data-parent="reports"].active,
 .sidebar-submenu-btn[data-parent="advanced-visitors"].active,
 .sidebar-submenu-btn[data-parent="system-admin"].active {
-  background: #74b9ff;
-  color: #fff;
+  background: #f0f3f7;
+  color: #0984e3;
   border-left: 4px solid #0984e3;
 }
 
 /* FALLBACK Submenu hover and active states */
 .sidebar-submenu-btn:hover {
-  background: #dde7ff;
+  background: #f0f3f7;
   color: #0984e3;
 }
 
 .sidebar-submenu-btn.active {
-  background: #74b9ff;
-  color: #fff;
+  background: #f0f3f7;
+  color: #0984e3;
   border-left: 4px solid #0984e3;
 }
 
 /* ===========================================
-   UNIFIED BLUE SUB-SUBMENU COLORS (LIGHTEST BLUE)
+   UNIFIED NEUTRAL SUB-SUBMENU COLORS
    =========================================== */
 
-/* ALL SUB-SUBMENU GRANDCHILDREN - Lightest Blue (#f0f8ff, #dde7ff) */
+/* ALL SUB-SUBMENU GRANDCHILDREN - Very light neutral colors */
 .sidebar-sub-submenu-btn[data-grandparent="dashboard"]:hover,
 .sidebar-sub-submenu-btn[data-grandparent="visitor-logs"]:hover,
 .sidebar-sub-submenu-btn[data-grandparent="manage-users"]:hover,
 .sidebar-sub-submenu-btn[data-grandparent="reports"]:hover,
 .sidebar-sub-submenu-btn[data-grandparent="advanced-visitors"]:hover,
 .sidebar-sub-submenu-btn[data-grandparent="system-admin"]:hover {
-  background: #f0f8ff;
-  color: #74b9ff;
+  background: #f5f6fa;
+  color: #0984e3;
 }
 
 .sidebar-sub-submenu-btn[data-grandparent="dashboard"].active,
@@ -265,19 +316,19 @@
 .sidebar-sub-submenu-btn[data-grandparent="reports"].active,
 .sidebar-sub-submenu-btn[data-grandparent="advanced-visitors"].active,
 .sidebar-sub-submenu-btn[data-grandparent="system-admin"].active {
-  background: #dde7ff;
+  background: #f5f6fa;
   color: #0984e3;
   border-left: 4px solid #74b9ff;
 }
 
 /* FALLBACK Sub-submenu hover and active states */
 .sidebar-sub-submenu-btn:hover {
-  background: #f0f8ff;
-  color: #74b9ff;
+  background: #f5f6fa;
+  color: #0984e3;
 }
 
 .sidebar-sub-submenu-btn.active {
-  background: #dde7ff;
+  background: #f5f6fa;
   color: #0984e3;
   border-left: 4px solid #74b9ff;
 }
@@ -1050,4 +1101,162 @@
 
 .badge-preview [style*="color"] {
   color: #6c757d !important;
+}
+
+/* Visitor Analytics Styles */
+.visitor-analytics {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  padding: 20px 0;
+}
+
+.visitor-metrics {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+}
+
+.visitor-metrics h3 {
+  color: #2d3436;
+  margin-bottom: 20px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.metric-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 15px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 4px solid #0984e3;
+  transition: all 0.3s ease;
+}
+
+.metric-item:hover {
+  background: #e9ecef;
+  transform: translateX(2px);
+}
+
+.metric-item span:first-child {
+  color: #495057;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.metric-value {
+  color: #0984e3;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* Visitor Insights Styles */
+.visitor-insights {
+  background: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+}
+
+.visitor-insights h3 {
+  color: #2d3436;
+  margin-bottom: 20px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.insight-card {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  transition: all 0.3s ease;
+}
+
+.insight-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  border-color: #0984e3;
+}
+
+.insight-card h4 {
+  color: #2d3436;
+  margin-bottom: 15px;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.insight-card h4::before {
+  content: "📊";
+  font-size: 18px;
+}
+
+.insight-card:nth-child(2) h4::before {
+  content: "👥";
+}
+
+.insight-card:nth-child(3) h4::before {
+  content: "🎯";
+}
+
+.insight-card ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.insight-card li {
+  padding: 8px 0;
+  border-bottom: 1px solid #e9ecef;
+  color: #495057;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.insight-card li:last-child {
+  border-bottom: none;
+}
+
+.insight-card strong {
+  color: #0984e3;
+  font-weight: 600;
+}
+
+/* Responsive Design for Analytics */
+@media (max-width: 768px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .insights-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .insight-card {
+    padding: 15px;
+  }
+  
+  .visitor-analytics {
+    gap: 20px;
+  }
 }

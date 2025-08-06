@@ -1,6 +1,18 @@
 # 🏢 Visitor Management System (VMS) - Advanced ID Card Detection
 
-A comprehensive **full-stack visitor management system** with **AI-powered ID card detection**, QR code scanning, and real-time visitor tracking. Built with **React**, **Node.js**, **MySQL**, and **Flask ML services**.
+A comprehensive **full-stack visitor management system** with **AI-powered ID card detection**, QR code scanning, and real-time visitor tracking. Built with **React**, **Flask**, **MySQL**, and **Python ML services**.
+
+## 📚 Documentation
+For comprehensive documentation, setup guides, and development information, see the **[docs/](docs/)** directory:
+- **[API Documentation](docs/api/)** - REST API endpoints and usage
+- **[Architecture](docs/architecture/)** - System design and structure analysis  
+- **[Deployment](docs/deployment/)** - Setup and production deployment guides
+- **[Development](docs/development/)** - Coding standards and contribution guidelines
+- **[Features](docs/features/)** - Detailed feature implementation guides
+
+## 🏗️ **Project Structure Review & Enhancement**
+- **[📊 Project Structure Review](PROJECT_STRUCTURE_REVIEW.md)** - Comprehensive analysis of current project organization
+- **[🔧 Structure Improvement Guide](STRUCTURE_IMPROVEMENT_GUIDE.md)** - Step-by-step enhancement implementation plan
 
 ## 🚀 Key Features
 

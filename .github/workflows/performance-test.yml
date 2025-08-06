@@ -1,0 +1,325 @@
+name: Performance Testing
+
+on:
+  schedule:
+    # Run performance tests every Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: 'Target environment for testing'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      test_duration:
+        description: 'Test duration in minutes'
+        required: true
+        default: '10'
+        type: string
+
+jobs:
+  load-testing:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Node.js for Artillery
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install Artillery
+      run: |
+        npm install -g artillery@latest
+    
+    - name: Create Artillery configuration
+      run: |
+        cat > artillery-config.yml << EOF
+        config:
+          target: ${{ github.event.inputs.target_environment == 'production' && secrets.PRODUCTION_URL || secrets.STAGING_URL }}
+          phases:
+            - duration: ${{ github.event.inputs.test_duration || '10' }}
+              arrivalRate: 10
+              name: "Warm up"
+            - duration: ${{ github.event.inputs.test_duration || '10' }}
+              arrivalRate: 50
+              name: "Ramp up load"
+            - duration: ${{ github.event.inputs.test_duration || '10' }}
+              arrivalRate: 100
+              name: "Peak load"
+          defaults:
+            headers:
+              Authorization: "Bearer ${{ secrets.TEST_API_TOKEN }}"
+        scenarios:
+          - name: "API Health Check"
+            weight: 20
+            flow:
+              - get:
+                  url: "/api/health"
+          - name: "User Authentication"
+            weight: 30
+            flow:
+              - post:
+                  url: "/api/auth/login"
+                  json:
+                    email: "test@example.com"
+                    password: "testpassword"
+          - name: "Visit Management"
+            weight: 25
+            flow:
+              - get:
+                  url: "/api/visits"
+              - post:
+                  url: "/api/visits"
+                  json:
+                    visitor_name: "Test Visitor"
+                    host_email: "host@example.com"
+                    purpose: "Business meeting"
+          - name: "Dashboard Data"
+            weight: 25
+            flow:
+              - get:
+                  url: "/api/dashboard/stats"
+              - get:
+                  url: "/api/users/profile"
+        EOF
+    
+    - name: Run load test
+      run: |
+        artillery run artillery-config.yml --output performance-report.json
+    
+    - name: Generate HTML report
+      run: |
+        artillery report performance-report.json --output performance-report.html
+    
+    - name: Upload performance report
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-report
+        path: |
+          performance-report.json
+          performance-report.html
+    
+    - name: Check performance thresholds
+      run: |
+        # Extract key metrics from the report
+        MEDIAN_RESPONSE_TIME=$(jq '.aggregate.latency.median' performance-report.json)
+        P95_RESPONSE_TIME=$(jq '.aggregate.latency.p95' performance-report.json)
+        ERROR_RATE=$(jq '.aggregate.counters["errors.ENOTFOUND"] // 0' performance-report.json)
+        
+        echo "Median Response Time: ${MEDIAN_RESPONSE_TIME}ms"
+        echo "95th Percentile Response Time: ${P95_RESPONSE_TIME}ms"
+        echo "Error Rate: ${ERROR_RATE}"
+        
+        # Set thresholds
+        MAX_MEDIAN_RESPONSE_TIME=1000
+        MAX_P95_RESPONSE_TIME=3000
+        MAX_ERROR_RATE=5
+        
+        # Check thresholds
+        if (( $(echo "$MEDIAN_RESPONSE_TIME > $MAX_MEDIAN_RESPONSE_TIME" | bc -l) )); then
+          echo "❌ Median response time exceeds threshold: ${MEDIAN_RESPONSE_TIME}ms > ${MAX_MEDIAN_RESPONSE_TIME}ms"
+          exit 1
+        fi
+        
+        if (( $(echo "$P95_RESPONSE_TIME > $MAX_P95_RESPONSE_TIME" | bc -l) )); then
+          echo "❌ 95th percentile response time exceeds threshold: ${P95_RESPONSE_TIME}ms > ${MAX_P95_RESPONSE_TIME}ms"
+          exit 1
+        fi
+        
+        if (( $(echo "$ERROR_RATE > $MAX_ERROR_RATE" | bc -l) )); then
+          echo "❌ Error rate exceeds threshold: ${ERROR_RATE}% > ${MAX_ERROR_RATE}%"
+          exit 1
+        fi
+        
+        echo "✅ All performance thresholds passed!"
+
+  database-performance:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: performance_test
+          MYSQL_USER: test_user
+          MYSQL_PASSWORD: test_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        cd Backend
+        pip install -r requirements.txt
+        pip install mysqlclient
+    
+    - name: Create performance test script
+      run: |
+        cat > db_performance_test.py << 'EOF'
+        import time
+        import mysql.connector
+        import statistics
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        def connect_db():
+            return mysql.connector.connect(
+                host='localhost',
+                port=3306,
+                user='test_user',
+                password='test_password',
+                database='performance_test'
+            )
+        
+        def create_test_data():
+            conn = connect_db()
+            cursor = conn.cursor()
+            
+            # Create test table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS performance_test (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(100),
+                    email VARCHAR(100),
+                    data TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_email (email),
+                    INDEX idx_name (name)
+                )
+            """)
+            
+            # Insert test data
+            for i in range(10000):
+                cursor.execute("""
+                    INSERT INTO performance_test (name, email, data) 
+                    VALUES (%s, %s, %s)
+                """, (f"User {i}", f"user{i}@example.com", f"Test data {i}" * 10))
+            
+            conn.commit()
+            cursor.close()
+            conn.close()
+        
+        def test_query_performance():
+            conn = connect_db()
+            cursor = conn.cursor()
+            
+            # Test different query types
+            queries = [
+                "SELECT * FROM performance_test WHERE id = %s",
+                "SELECT * FROM performance_test WHERE email = %s",
+                "SELECT COUNT(*) FROM performance_test WHERE name LIKE %s",
+                "SELECT * FROM performance_test ORDER BY created_at DESC LIMIT 100"
+            ]
+            
+            results = []
+            for query in queries:
+                times = []
+                for _ in range(100):
+                    start_time = time.time()
+                    if "%s" in query:
+                        if "id" in query:
+                            cursor.execute(query, (5000,))
+                        elif "email" in query:
+                            cursor.execute(query, ("user5000@example.com",))
+                        elif "LIKE" in query:
+                            cursor.execute(query, ("User%",))
+                    else:
+                        cursor.execute(query)
+                    cursor.fetchall()
+                    end_time = time.time()
+                    times.append((end_time - start_time) * 1000)
+                
+                avg_time = statistics.mean(times)
+                median_time = statistics.median(times)
+                p95_time = sorted(times)[int(0.95 * len(times))]
+                
+                results.append({
+                    'query': query,
+                    'avg_time': avg_time,
+                    'median_time': median_time,
+                    'p95_time': p95_time
+                })
+                
+                print(f"Query: {query}")
+                print(f"  Average: {avg_time:.2f}ms")
+                print(f"  Median: {median_time:.2f}ms")
+                print(f"  95th percentile: {p95_time:.2f}ms")
+                print()
+            
+            cursor.close()
+            conn.close()
+            return results
+        
+        def test_concurrent_queries():
+            def run_query():
+                conn = connect_db()
+                cursor = conn.cursor()
+                start_time = time.time()
+                cursor.execute("SELECT * FROM performance_test WHERE id = %s", (5000,))
+                cursor.fetchall()
+                end_time = time.time()
+                cursor.close()
+                conn.close()
+                return (end_time - start_time) * 1000
+            
+            # Test with different concurrency levels
+            for concurrency in [1, 5, 10, 20]:
+                times = []
+                with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                    futures = [executor.submit(run_query) for _ in range(100)]
+                    for future in as_completed(futures):
+                        times.append(future.result())
+                
+                avg_time = statistics.mean(times)
+                print(f"Concurrency {concurrency}: Average {avg_time:.2f}ms")
+        
+        if __name__ == "__main__":
+            print("Creating test data...")
+            create_test_data()
+            
+            print("Testing query performance...")
+            test_query_performance()
+            
+            print("Testing concurrent queries...")
+            test_concurrent_queries()
+        EOF
+    
+    - name: Run database performance test
+      run: |
+        python db_performance_test.py
+
+  notify-performance-results:
+    runs-on: ubuntu-latest
+    needs: [load-testing, database-performance]
+    if: always()
+    
+    steps:
+    - name: Notify performance test results
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ needs.load-testing.result == 'success' && needs.database-performance.result == 'success' && 'success' || 'failure' }}
+        text: |
+          📊 Performance Test Results:
+          - Load Testing: ${{ needs.load-testing.result }}
+          - Database Performance: ${{ needs.database-performance.result }}
+          
+          Environment: ${{ github.event.inputs.target_environment || 'staging' }}
+          Test Duration: ${{ github.event.inputs.test_duration || '10' }} minutes
+        webhook_url: ${{ secrets.PERFORMANCE_SLACK_WEBHOOK_URL }}

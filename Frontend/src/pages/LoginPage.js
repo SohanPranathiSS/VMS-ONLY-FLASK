@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { loginUser } from '../utils/apiService';
+
+import Footer from '../components/Footer';
 import '../styles/LoginPage.css';
 
 const LoginPage = () => {
@@ -46,7 +48,9 @@ const LoginPage = () => {
   return (
     <div className="loginpage-outer">
       <nav className="navbar">
-        <div className="navbar-logo">Visitor Management</div>
+       <div className="navbar-logo">
+          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
+        </div>
         <ul className="navbar-links">
           <li><Link to="/">Home</Link></li>
           <li><Link to="/products">Products</Link></li>
@@ -84,6 +88,7 @@ const LoginPage = () => {
           </button>
         </form>
       </div>
+       <Footer />
     </div>
   );
 };

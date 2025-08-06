@@ -30,6 +30,7 @@ import {
   createBackup,
   restoreBackup
 } from '../utils/apiService';
+import AdminFooter from '../components/AdminFooter';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, LineElement, PointElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { jsPDF } from 'jspdf';
@@ -298,6 +299,20 @@ const AdminDashboardPage = () => {
     }
   }, []);
 
+
+// Function to format minutes into "Xh Ymin"
+const formatDuration = (minutes) => {
+  if (!minutes || isNaN(minutes)) return 'N/A';
+  
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  
+  if (hours === 0) return `${remainingMinutes}min`;
+  return `${hours}h ${remainingMinutes}min`;
+};
+
+
+
   // Fetch visitor data
   const fetchVisitorData = useCallback(async () => {
     if (!userRole) {
@@ -415,11 +430,37 @@ const AdminDashboardPage = () => {
           data = await getBlacklistedVisitors(blacklistFilters);
           console.log('✅ Blacklisted visitors data:', data);
           
+          // Transform blacklisted visitors to match expected field structure
+          data = data.map(visitor => ({
+            ...visitor,
+            visitorName: visitor.person_name || visitor.visitor_name || visitor.visitorName || visitor.name,
+            visitorEmail: visitor.email || visitor.visitor_email || visitor.visitorEmail,
+            visitorPhone: visitor.phone || visitor.visitor_phone || visitor.visitorPhone,
+            hostName: visitor.person_to_meet || visitor.host_name || visitor.hostName,
+            visitor_id: visitor.visitor_id || visitor.id,
+            visitor_name: visitor.person_name || visitor.visitor_name || visitor.name || visitor.visitorName,
+            visitor_email: visitor.email || visitor.visitor_email || visitor.visitorEmail,
+            host_name: visitor.person_to_meet || visitor.host_name || visitor.hostName,
+            purpose: visitor.visit_reason || visitor.purpose || visitor.reason,
+            reason: visitor.visit_reason || visitor.purpose || visitor.reason,
+            visit_date: visitor.visit_date || visitor.visitDate,
+            check_in_time: visitor.check_in || visitor.check_in_time || visitor.checkInTime,
+            check_out_time: visitor.check_out || visitor.check_out_time || visitor.checkOutTime,
+            blacklist_reason: visitor.reason_to_blacklist || visitor.blacklist_reason,
+            reason_for_blacklist: visitor.reason_to_blacklist || visitor.reason_for_blacklist,
+            visitorPhoto: visitor.picture || visitor.visitorPhoto || visitor.photo,
+            photo: visitor.picture || visitor.photo || visitor.visitorPhoto,
+            isBlacklisted: true,
+            is_blacklisted: true
+          }));
+          
+          console.log('✅ Transformed blacklisted visitors data:', data);
+          
           // Also fetch blacklisted pre-registrations
           try {
             console.log('📥 Fetching blacklisted pre-registrations...');
-            const preRegsData = await getPreRegistrations(blacklistFilters);
-            const blacklistedPreRegs = preRegsData.filter(preReg => 
+            const allPreRegsData = await getPreRegistrations(blacklistFilters);
+            const blacklistedPreRegs = allPreRegsData.filter(preReg => 
               preReg.is_blacklisted === true || preReg.isBlacklisted === true
             ).map(preReg => ({
               ...preReg,
@@ -650,6 +691,370 @@ const AdminDashboardPage = () => {
     fetchVisitorData();
   };
 
+  // Helper function to calculate percentage change
+  const calculatePercentageChange = (current, previous) => {
+    if (previous === 0) return current > 0 ? 100 : 0;
+    return Math.round(((current - previous) / previous) * 100);
+  };
+
+  // Calculate statistics for current period
+  const calculateOverviewStats = () => {
+    const totalVisitors = filteredVisits.length;
+    
+    // Calculate unique visitors by email
+    const uniqueEmails = new Set(filteredVisits.map(visit => 
+      visit.visitor_email || visit.visitorEmail || 'unknown'
+    ).filter(email => email !== 'unknown'));
+    const uniqueVisitors = uniqueEmails.size;
+    
+    // Calculate average duration for completed visits
+    const completedVisits = filteredVisits.filter(visit => 
+      visit.check_in_time && visit.check_out_time
+    );
+    
+    let avgDuration = 0;
+    if (completedVisits.length > 0) {
+      const totalDuration = completedVisits.reduce((sum, visit) => {
+        const checkIn = new Date(visit.check_in_time);
+        const checkOut = new Date(visit.check_out_time);
+        return sum + (checkOut - checkIn) / (1000 * 60); // Convert to minutes
+      }, 0);
+      avgDuration = Math.round(totalDuration / completedVisits.length);
+    }
+    
+    // Calculate peak hour
+    const hourCounts = {};
+    filteredVisits.forEach(visit => {
+      if (visit.check_in_time) {
+        const hour = new Date(visit.check_in_time).getHours();
+        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+      }
+    });
+    
+    const peakHour = Object.entries(hourCounts).reduce((peak, [hour, count]) => 
+      count > (hourCounts[peak] || 0) ? hour : peak, '0'
+    );
+    
+    const peakHourFormatted = peakHour !== '0' ? 
+      `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
+    
+    // Calculate no-shows (pre-registrations that were never checked in)
+    const noShows = filteredVisits.filter(visit => 
+      visit.isPreRegistration && !visit.check_in_time && 
+      new Date(visit.visit_date) < new Date()
+    ).length;
+    
+    // Calculate security incidents (blacklisted visitors who attempted visits)
+    const securityIncidents = filteredVisits.filter(visit => 
+      visit.isBlacklisted || visit.is_blacklisted
+    ).length;
+    
+    return {
+      totalVisitors,
+      uniqueVisitors,
+      avgDuration,
+      peakHour: peakHourFormatted,
+      noShows,
+      securityIncidents
+    };
+  };
+
+  // Calculate previous period stats for comparison
+  const calculatePreviousStats = () => {
+    const currentDate = new Date();
+    const thirtyDaysAgo = new Date(currentDate.getTime() - (30 * 24 * 60 * 60 * 1000));
+    const sixtyDaysAgo = new Date(currentDate.getTime() - (60 * 24 * 60 * 60 * 1000));
+    
+    const previousPeriodVisits = filteredVisits.filter(visit => {
+      const visitDate = new Date(visit.visit_date || visit.check_in_time);
+      return visitDate >= sixtyDaysAgo && visitDate < thirtyDaysAgo;
+    });
+    
+    const totalVisitors = previousPeriodVisits.length;
+    
+    const completedVisits = previousPeriodVisits.filter(visit => 
+      visit.check_in_time && visit.check_out_time
+    );
+    
+    let avgDuration = 0;
+    if (completedVisits.length > 0) {
+      const totalDuration = completedVisits.reduce((sum, visit) => {
+        const checkIn = new Date(visit.check_in_time);
+        const checkOut = new Date(visit.check_out_time);
+        return sum + (checkOut - checkIn) / (1000 * 60);
+      }, 0);
+      avgDuration = Math.round(totalDuration / completedVisits.length);
+    }
+    
+    const securityIncidents = previousPeriodVisits.filter(visit => 
+      visit.isBlacklisted || visit.is_blacklisted
+    ).length;
+    
+    return {
+      totalVisitors,
+      avgDuration,
+      securityIncidents
+    };
+  };
+
+  // Enhanced Host Performance calculations
+  const calculateHostPerformance = () => {
+    const hostStats = {};
+    const hostMeetingTimes = {};
+    const hostVisitReasons = {};
+    
+    filteredVisits.forEach(visit => {
+      const hostName = visit.person_to_meet || visit.personToMeet || visit.host || 'Unknown';
+      
+      // Count visits per host
+      if (!hostStats[hostName]) {
+        hostStats[hostName] = {
+          host_name: hostName,
+          visits: 0,
+          totalDuration: 0,
+          completedVisits: 0,
+          noShows: 0,
+          averageDuration: 0,
+          lastVisit: null,
+          visitReasons: {},
+          peakHours: {}
+        };
+      }
+      
+      hostStats[hostName].visits++;
+      
+      // Calculate duration for completed visits
+      if (visit.check_in_time && visit.check_out_time) {
+        const checkIn = new Date(visit.check_in_time);
+        const checkOut = new Date(visit.check_out_time);
+        const duration = (checkOut - checkIn) / (1000 * 60); // minutes
+        hostStats[hostName].totalDuration += duration;
+        hostStats[hostName].completedVisits++;
+        
+        // Track peak hours for this host
+        const hour = checkIn.getHours();
+        hostStats[hostName].peakHours[hour] = (hostStats[hostName].peakHours[hour] || 0) + 1;
+      }
+      
+      // Track no-shows
+      if (visit.isPreRegistration && !visit.check_in_time && 
+          new Date(visit.visit_date) < new Date()) {
+        hostStats[hostName].noShows++;
+      }
+      
+      // Track visit reasons
+      const reason = visit.visit_reason || visit.visitReason || visit.purpose || 'Unknown';
+      hostStats[hostName].visitReasons[reason] = (hostStats[hostName].visitReasons[reason] || 0) + 1;
+      
+      // Track last visit
+      const visitDate = new Date(visit.check_in_time || visit.visit_date);
+      if (!hostStats[hostName].lastVisit || visitDate > hostStats[hostName].lastVisit) {
+        hostStats[hostName].lastVisit = visitDate;
+      }
+    });
+    
+    // Calculate average duration for each host
+    Object.values(hostStats).forEach(host => {
+      if (host.completedVisits > 0) {
+        host.averageDuration = Math.round(host.totalDuration / host.completedVisits);
+      }
+      
+      // Find peak hour for this host
+      const peakHour = Object.entries(host.peakHours).reduce((peak, [hour, count]) => 
+        count > (host.peakHours[peak] || 0) ? hour : peak, '0'
+      );
+      host.peakHour = peakHour !== '0' ? 
+        `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
+      
+      // Find most common visit reason
+      host.topReason = Object.entries(host.visitReasons).reduce((top, [reason, count]) => 
+        count > (host.visitReasons[top] || 0) ? reason : top, 'N/A'
+      );
+    });
+    
+    // Sort by number of visits
+    const sortedHosts = Object.values(hostStats).sort((a, b) => b.visits - a.visits);
+    
+    return sortedHosts;
+  };
+
+  // Enhanced Security analytics calculations
+  const calculateSecurityInsights = () => {
+    const now = new Date();
+    
+    // Blacklisted visitor attempts
+    const blacklistedAttempts = filteredVisits.filter(v => v.isBlacklisted || v.is_blacklisted);
+    
+    // Overstay incidents (visits longer than 8 hours)
+    const overstays = filteredVisits.filter(v => {
+      if (!v.check_in_time) return false;
+      const checkInTime = new Date(v.check_in_time);
+      const endTime = v.check_out_time ? new Date(v.check_out_time) : now;
+      const hoursStayed = (endTime - checkInTime) / (1000 * 60 * 60);
+      return hoursStayed > 8;
+    });
+    
+    // Incomplete checkouts (24+ hours without checkout)
+    const incompleteCheckouts = filteredVisits.filter(v => 
+      v.check_in_time && 
+      (!v.check_out_time || v.check_out_time.trim() === '') && 
+      (now - new Date(v.check_in_time)) > 24 * 60 * 60 * 1000
+    );
+    
+    // After-hours visits (before 8 AM or after 6 PM)
+    const afterHoursVisits = filteredVisits.filter(v => {
+      if (!v.check_in_time) return false;
+      const hour = new Date(v.check_in_time).getHours();
+      return hour < 8 || hour > 18;
+    });
+    
+    // Frequent visitors (5+ visits in the period)
+    const visitorCounts = {};
+    filteredVisits.forEach(visit => {
+      const email = visit.visitor_email || visit.visitorEmail || 'unknown';
+      visitorCounts[email] = (visitorCounts[email] || 0) + 1;
+    });
+    const frequentVisitors = Object.entries(visitorCounts)
+      .filter(([email, count]) => count >= 5 && email !== 'unknown')
+      .sort((a, b) => b[1] - a[1]);
+    
+    // No-shows (scheduled but didn't arrive)
+    const noShows = filteredVisits.filter(visit => 
+      visit.isPreRegistration && !visit.check_in_time && 
+      new Date(visit.visit_date) < new Date()
+    );
+    
+    // Security score calculation (0-100)
+    let securityScore = 100;
+    securityScore -= blacklistedAttempts.length * 10; // -10 per blacklisted attempt
+    securityScore -= overstays.length * 5; // -5 per overstay
+    securityScore -= incompleteCheckouts.length * 2; // -2 per incomplete checkout
+    securityScore -= afterHoursVisits.length * 1; // -1 per after-hours visit
+    securityScore = Math.max(0, securityScore); // Don't go below 0
+    
+    return {
+      blacklistedAttempts,
+      overstays,
+      incompleteCheckouts,
+      afterHoursVisits,
+      frequentVisitors,
+      noShows,
+      securityScore,
+      totalIncidents: blacklistedAttempts.length + overstays.length + incompleteCheckouts.length,
+      riskLevel: securityScore > 80 ? 'Low' : securityScore > 60 ? 'Medium' : 'High'
+    };
+  };
+
+  // Enhanced visitor analytics calculations
+  const calculateVisitorAnalytics = () => {
+    const totalVisitors = filteredVisits.length;
+    
+    // Calculate unique visitors by email
+    const uniqueEmails = new Set(filteredVisits.map(visit => 
+      visit.visitor_email || visit.visitorEmail || 'unknown'
+    ).filter(email => email !== 'unknown'));
+    const uniqueVisitors = uniqueEmails.size;
+    
+    // Calculate returning visitors
+    const returningVisitors = Math.max(0, totalVisitors - uniqueVisitors);
+    
+    // Calculate average duration for completed visits
+    const completedVisits = filteredVisits.filter(visit => 
+      visit.check_in_time && visit.check_out_time
+    );
+    
+    let avgDuration = 0;
+    if (completedVisits.length > 0) {
+      const totalDuration = completedVisits.reduce((sum, visit) => {
+        const checkIn = new Date(visit.check_in_time);
+        const checkOut = new Date(visit.check_out_time);
+        return sum + (checkOut - checkIn) / (1000 * 60); // Convert to minutes
+      }, 0);
+      avgDuration = Math.round(totalDuration / completedVisits.length);
+    }
+    
+    // Calculate peak hour
+    const hourCounts = {};
+    filteredVisits.forEach(visit => {
+      if (visit.check_in_time) {
+        const hour = new Date(visit.check_in_time).getHours();
+        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+      }
+    });
+    
+    const peakHour = Object.entries(hourCounts).reduce((peak, [hour, count]) => 
+      count > (hourCounts[peak] || 0) ? hour : peak, '0'
+    );
+    
+    const peakHourFormatted = peakHour !== '0' ? 
+      `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
+    
+    // Calculate no-shows (pre-registrations that were never checked in)
+    const noShows = filteredVisits.filter(visit => 
+      visit.isPreRegistration && !visit.check_in_time && 
+      new Date(visit.visit_date) < new Date()
+    ).length;
+    
+    // Calculate visit patterns
+    const dayOfWeekCounts = {};
+    const visitReasons = {};
+    const hostMeetings = {};
+    
+    filteredVisits.forEach(visit => {
+      // Day of week analysis
+      if (visit.check_in_time || visit.visit_date) {
+        const date = new Date(visit.check_in_time || visit.visit_date);
+        const dayOfWeek = date.toLocaleDateString('en-US', { weekday: 'long' });
+        dayOfWeekCounts[dayOfWeek] = (dayOfWeekCounts[dayOfWeek] || 0) + 1;
+      }
+      
+      // Visit reason analysis
+      const reason = visit.visit_reason || visit.visitReason || visit.purpose || 'Unknown';
+      visitReasons[reason] = (visitReasons[reason] || 0) + 1;
+      
+      // Host meeting analysis
+      const host = visit.person_to_meet || visit.personToMeet || visit.host || 'Unknown';
+      hostMeetings[host] = (hostMeetings[host] || 0) + 1;
+    });
+    
+    // Find busiest day
+    const busiestDay = Object.entries(dayOfWeekCounts).reduce((busiest, [day, count]) => 
+      count > (dayOfWeekCounts[busiest] || 0) ? day : busiest, 'N/A'
+    );
+    
+    // Find most common visit reason
+    const topVisitReason = Object.entries(visitReasons).reduce((top, [reason, count]) => 
+      count > (visitReasons[top] || 0) ? reason : top, 'N/A'
+    );
+    
+    // Find most visited host
+    const topHost = Object.entries(hostMeetings).reduce((top, [host, count]) => 
+      count > (hostMeetings[top] || 0) ? host : top, 'N/A'
+    );
+    
+    // Calculate check-in completion rate
+    const totalScheduled = filteredVisits.filter(visit => visit.isPreRegistration).length;
+    const actualCheckIns = filteredVisits.filter(visit => visit.check_in_time).length;
+    const checkInRate = totalScheduled > 0 ? Math.round((actualCheckIns / totalScheduled) * 100) : 100;
+    
+    return {
+      totalVisitors,
+      uniqueVisitors,
+      returningVisitors,
+      avgDuration,
+      peakHour: peakHourFormatted,
+      noShows,
+      busiestDay,
+      topVisitReason,
+      topHost,
+      checkInRate,
+      completedVisits: completedVisits.length,
+      dayOfWeekCounts,
+      visitReasons,
+      hostMeetings
+    };
+  };
+
   // Enhanced PDF Export Function
   const exportToPDF = async () => {
   try {
@@ -670,67 +1075,6 @@ const AdminDashboardPage = () => {
     let yPosition = 60;
     
     // 1. Calculate real overview statistics from actual data
-    const calculateOverviewStats = () => {
-      const totalVisitors = filteredVisits.length;
-      
-      // Calculate unique visitors by email
-      const uniqueEmails = new Set(filteredVisits.map(visit => 
-        visit.visitor_email || visit.visitorEmail || 'unknown'
-      ).filter(email => email !== 'unknown'));
-      const uniqueVisitors = uniqueEmails.size;
-      
-      // Calculate average duration for completed visits
-      const completedVisits = filteredVisits.filter(visit => 
-        visit.check_in_time && visit.check_out_time
-      );
-      
-      let avgDuration = 0;
-      if (completedVisits.length > 0) {
-        const totalDuration = completedVisits.reduce((sum, visit) => {
-          const checkIn = new Date(visit.check_in_time);
-          const checkOut = new Date(visit.check_out_time);
-          return sum + (checkOut - checkIn) / (1000 * 60); // Convert to minutes
-        }, 0);
-        avgDuration = Math.round(totalDuration / completedVisits.length);
-      }
-      
-      // Calculate peak hour
-      const hourCounts = {};
-      filteredVisits.forEach(visit => {
-        if (visit.check_in_time) {
-          const hour = new Date(visit.check_in_time).getHours();
-          hourCounts[hour] = (hourCounts[hour] || 0) + 1;
-        }
-      });
-      
-      const peakHour = Object.entries(hourCounts).reduce((peak, [hour, count]) => 
-        count > (hourCounts[peak] || 0) ? hour : peak, '0'
-      );
-      
-      const peakHourFormatted = peakHour !== '0' ? 
-        `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
-      
-      // Calculate no-shows (pre-registrations that were never checked in)
-      const noShows = filteredVisits.filter(visit => 
-        visit.isPreRegistration && !visit.check_in_time && 
-        new Date(visit.visit_date) < new Date()
-      ).length;
-      
-      // Calculate security incidents (blacklisted visitors who attempted visits)
-      const securityIncidents = filteredVisits.filter(visit => 
-        visit.isBlacklisted || visit.is_blacklisted
-      ).length;
-      
-      return {
-        totalVisitors,
-        uniqueVisitors,
-        avgDuration,
-        peakHour: peakHourFormatted,
-        noShows,
-        securityIncidents
-      };
-    };
-    
     const realOverviewStats = calculateOverviewStats();
     
     // Overview Statistics Table with real calculations
@@ -2549,8 +2893,10 @@ const AdminDashboardPage = () => {
                 onClick={() => toggleMenu('dashboard')}
                 type="button"
                 data-section="dashboard"
+                aria-expanded={expandedMenus.dashboard}
               >
-                📊 Dashboard {expandedMenus.dashboard ? '−' : '+'}
+                <span>📊 Dashboard</span>
+                <span className="chevron">▶</span>
               </button>
               {expandedMenus.dashboard && (
                 <ul className="sidebar-submenu">
@@ -2563,8 +2909,10 @@ const AdminDashboardPage = () => {
                       }}
                       type="button"
                       data-parent="dashboard"
+                      aria-expanded={expandedMenus.visitorDashboard}
                     >
-                      👥 Visitor Dashboard {expandedMenus.visitorDashboard ? '−' : '+'}
+                      <span>👥 Visitor Dashboard</span>
+                      <span className="chevron">▶</span>
                     </button>
                     {expandedMenus.visitorDashboard && (
                       <ul className="sidebar-sub-submenu">
@@ -2630,8 +2978,10 @@ const AdminDashboardPage = () => {
                       }}
                       type="button"
                       data-parent="dashboard"
+                      aria-expanded={expandedMenus.hrDashboard}
                     >
-                      👔 HR Dashboard {expandedMenus.hrDashboard ? '−' : '+'}
+                      <span>👔 HR Dashboard</span>
+                      <span className="chevron">▶</span>
                     </button>
                     {expandedMenus.hrDashboard && (
                       <ul className="sidebar-sub-submenu">
@@ -2657,8 +3007,10 @@ const AdminDashboardPage = () => {
                 onClick={() => toggleMenu('visitorLogs')}
                 type="button"
                 data-section="visitor-logs"
+                aria-expanded={expandedMenus.visitorLogs}
               >
-                📋 Visitor Management {expandedMenus.visitorLogs ? '−' : '+'}
+                <span>📋 Visitor Management</span>
+                <span className="chevron">▶</span>
               </button>
               {expandedMenus.visitorLogs && (
                 <ul className="sidebar-submenu">
@@ -2671,8 +3023,10 @@ const AdminDashboardPage = () => {
                       }}
                       type="button"
                       data-parent="visitor-logs"
+                      aria-expanded={expandedMenus.visitorDashboardLogs}
                     >
-                      👥 Visitor Logs {expandedMenus.visitorDashboardLogs ? '−' : '+'}
+                      <span>👥 Visitor Logs</span>
+                      <span className="chevron">▶</span>
                     </button>
                     {expandedMenus.visitorDashboardLogs && (
                       <ul className="sidebar-sub-submenu">
@@ -2748,8 +3102,10 @@ const AdminDashboardPage = () => {
                       }}
                       type="button"
                       data-parent="visitor-logs"
+                      aria-expanded={expandedMenus.hrDashboardLogs}
                     >
-                      👔 Guest Management {expandedMenus.hrDashboardLogs ? '−' : '+'}
+                      <span>👔 Guest Management</span>
+                      <span className="chevron">▶</span>
                     </button>
                     {expandedMenus.hrDashboardLogs && (
                       <ul className="sidebar-sub-submenu">
@@ -2808,8 +3164,10 @@ const AdminDashboardPage = () => {
                 }}
                 type="button"
                 data-section="manage-users"
+                aria-expanded={expandedMenus.manageUsers}
               >
-                👥 Manage Users {expandedMenus.manageUsers ? '−' : '+'}
+                <span>👥 Manage Users</span>
+                <span className="chevron">▶</span>
               </button>
               {expandedMenus.manageUsers && (
                 <ul className="sidebar-submenu">
@@ -2835,8 +3193,10 @@ const AdminDashboardPage = () => {
                 }}
                 type="button"
                 data-section="reports"
+                aria-expanded={expandedMenus.reports}
               >
-                📊 Reports & Analytics {expandedMenus.reports ? '−' : '+'}
+                <span>📊 Reports & Analytics</span>
+                <span className="chevron">▶</span>
               </button>
               {expandedMenus.reports && (
                 <ul className="sidebar-submenu">
@@ -2904,8 +3264,10 @@ const AdminDashboardPage = () => {
                 }}
                 type="button"
                 data-section="advanced-visitors"
+                aria-expanded={expandedMenus.advancedVisitors}
               >
-                👥 Advanced Visitor Features {expandedMenus.advancedVisitors ? '−' : '+'}
+                <span>👥 Advanced Visitor Features</span>
+                <span className="chevron">▶</span>
               </button>
               {expandedMenus.advancedVisitors && (
                 <ul className="sidebar-submenu">
@@ -2986,8 +3348,10 @@ const AdminDashboardPage = () => {
                 }}
                 type="button"
                 data-section="system-admin"
+                aria-expanded={expandedMenus.systemAdmin}
               >
-                ⚙️ System Administration {expandedMenus.systemAdmin ? '−' : '+'}
+                <span>⚙️ System Administration</span>
+                <span className="chevron">▶</span>
               </button>
               {expandedMenus.systemAdmin && (
                 <ul className="sidebar-submenu">
@@ -3961,12 +4325,12 @@ const AdminDashboardPage = () => {
                               <th>Person to Meet</th>
                               <th>Visitor ID</th>
                               <th>Visit Reason</th>
-                              {activeSubSubSection === 'checked-out-visitors' && <th>Feedback</th>}
-                              {activeSubSubSection === 'blacklist-visitors' && <th>Reason to Blacklist</th>}
+                              {activeSubSubSection === 'checked-out-visitors' && <th key="feedback-header">Feedback</th>}
+                              {activeSubSubSection === 'blacklist-visitors' && <th key="blacklist-reason-header">Reason to Blacklist</th>}
                               <th>Check-In</th>
                               <th>Check-Out</th>
-                              {activeSubSubSection === 'checked-in-visitors' && <th>Overstay Alert</th>}
-                              {activeSubSubSection === 'blacklist-visitors' && <th>Actions</th>}
+                              {activeSubSubSection === 'checked-in-visitors' && <th key="overstay-header">Overstay Alert</th>}
+                              {activeSubSubSection === 'blacklist-visitors' && <th key="actions-header">Actions</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -4109,10 +4473,10 @@ const AdminDashboardPage = () => {
                                       </span>
                                     </td>
                                     {activeSubSubSection === 'checked-out-visitors' && (
-                                      <td>{visit.feedback || 'No feedback'}</td>
+                                      <td key="feedback-cell">{visit.feedback || 'No feedback'}</td>
                                     )}
                                     {activeSubSubSection === 'blacklist-visitors' && (
-                                      <td>
+                                      <td key="blacklist-reason-cell">
                                         <div style={{ maxWidth: '200px' }}>
                                           <strong>Reason:</strong> {visit.blacklist_reason || visit.reason_for_blacklist || 'No reason specified'}
                                           {visit.blacklisted_at && (
@@ -4138,7 +4502,7 @@ const AdminDashboardPage = () => {
                                        visit.check_in_time ? 'Still In' : 'Not Started'}
                                     </td>
                                     {activeSubSubSection === 'checked-in-visitors' && (
-                                      <td>
+                                      <td key="overstay-cell">
                                         {overstayAlert && (
                                           <span className={`overstay-alert ${overstayAlert}`}>
                                             {overstayAlert === 'danger' ? '🚨 Overstay!' : '⚠️ Long Stay'}
@@ -4147,7 +4511,7 @@ const AdminDashboardPage = () => {
                                       </td>
                                     )}
                                     {activeSubSubSection === 'blacklist-visitors' && (
-                                      <td>
+                                      <td key="actions-cell">
                                         <button
                                           className="action-btn remove-blacklist"
                                           onClick={() => handleRemoveFromBlacklist(visit.visitor_id || visit.id)}
@@ -4485,32 +4849,46 @@ const AdminDashboardPage = () => {
                         ) : reportData ? (
                           <>
                             <div className="stats-grid">
-                              <div className="stat-card">
-                                <h3>Total Visitors</h3>
-                                <div className="stat-number">{reportData.overview?.totalVisits || 0}</div>
-                                <div className="stat-change positive">
-                                  +4% from last period
-                                </div>
-                              </div>
-                              <div className="stat-card">
-                                <h3>Average Visit Duration</h3>
-                                <div className="stat-number">{Math.round(parseFloat(reportData.overview?.avgDuration || 0))}min</div>
-                                <div className="stat-change negative">
-                                  +0% from last period
-                                </div>
-                              </div>
-                              <div className="stat-card">
-                                <h3>Peak Hour</h3>
-                                <div className="stat-number">2:00 PM</div>
-                                <div className="stat-change">Most busy time</div>
-                              </div>
-                              <div className="stat-card">
-                                <h3>Security Incidents</h3>
-                                <div className="stat-number">0</div>
-                                <div className="stat-change positive">
-                                  -{reportData.incidentReduction || 0}% from last period
-                                </div>
-                              </div>
+                              {(() => {
+                                const currentStats = calculateOverviewStats();
+                                const previousStats = calculatePreviousStats();
+                                const visitorChange = calculatePercentageChange(currentStats.totalVisitors, previousStats.totalVisitors);
+                                const durationChange = calculatePercentageChange(currentStats.avgDuration, previousStats.avgDuration);
+                                const incidentChange = calculatePercentageChange(currentStats.securityIncidents, previousStats.securityIncidents);
+                                
+                                return (
+                                  <>
+                                    <div className="stat-card">
+                                      <h3>Total Visitors</h3>
+                                      <div className="stat-number">{currentStats.totalVisitors}</div>
+                                      <div className={`stat-change ${visitorChange >= 0 ? 'positive' : 'negative'}`}>
+                                        {visitorChange >= 0 ? '+' : ''}{visitorChange}% from last period
+                                      </div>
+                                    </div>
+                                    <div className="stat-card">
+                                      <h3>Average Visit Duration</h3>
+                                      <div className="stat-number">
+                                        {formatDuration(currentStats.avgDuration)}
+                                      </div>
+                                      <div className={`stat-change ${durationChange >= 0 ? 'positive' : 'negative'}`}>
+                                        {durationChange >= 0 ? '+' : ''}{durationChange}% from last period
+                                      </div>
+                                    </div>
+                                    <div className="stat-card">
+                                      <h3>Peak Hour</h3>
+                                      <div className="stat-number">{currentStats.peakHour}</div>
+                                      <div className="stat-change">Most busy time</div>
+                                    </div>
+                                    <div className="stat-card">
+                                      <h3>Security Incidents</h3>
+                                      <div className="stat-number">{currentStats.securityIncidents}</div>
+                                      <div className={`stat-change ${incidentChange <= 0 ? 'positive' : 'negative'}`}>
+                                        {incidentChange <= 0 ? (incidentChange === 0 ? '0' : incidentChange) : '+' + incidentChange}% from last period
+                                      </div>
+                                    </div>
+                                  </>
+                                );
+                              })()}
                             </div>
 
                             <div className="charts-grid">
@@ -4563,83 +4941,146 @@ const AdminDashboardPage = () => {
                           </div>
                         ) : reportData ? (
                           <div className="visitor-analytics">
-                            <div className="chart-container">
-                              <h3>Daily Visitor Trends</h3>
-                              {visitorTrendData && visitorTrendData.labels && visitorTrendData.labels.length > 0 ? (
-                                <div style={{ position: 'relative', height: '300px', width: '100%' }}>
-                                  <Line 
-                                    data={visitorTrendData} 
-                                    options={{
-                                      responsive: true,
-                                      maintainAspectRatio: false,
-                                      scales: {
-                                        y: {
-                                          beginAtZero: true,
-                                          title: {
-                                            display: true,
-                                            text: 'Number of Visitors'
-                                          }
-                                        },
-                                        x: {
-                                          title: {
-                                            display: true,
-                                            text: 'Date'
-                                          }
-                                        }
-                                      },
-                                      plugins: {
-                                        legend: {
-                                          display: true,
-                                          position: 'top'
-                                        },
-                                        tooltip: {
-                                          mode: 'index',
-                                          intersect: false
-                                        }
-                                      },
-                                      interaction: {
-                                        mode: 'nearest',
-                                        axis: 'x',
-                                        intersect: false
-                                      }
-                                    }} 
-                                  />
-                                </div>
-                              ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px', color: '#666' }}>
-                                  <p>No visitor trend data available for the selected period</p>
-                                </div>
-                              )}
-                            </div>
-                            <div className="visitor-metrics">
-                              <h3>Visitor Metrics</h3>
-                              <div className="metrics-grid">
-                                <div className="metric-item">
-                                  <span>Total Visitors</span>
-                                  <span className="metric-value">{reportData.overview?.totalVisits || 0}</span>
-                                </div>
-                                <div className="metric-item">
-                                  <span>First-time Visitors</span>
-                                  <span className="metric-value">{reportData.overview?.uniqueVisitors || 0}</span>
-                                </div>
-                                <div className="metric-item">
-                                  <span>Returning Visitors</span>
-                                  <span className="metric-value">{Math.max(0, (reportData.overview?.totalVisits || 0) - (reportData.overview?.uniqueVisitors || 0))}</span>
-                                </div>
-                                <div className="metric-item">
-                                  <span>Average Duration</span>
-                                  <span className="metric-value">{Math.round(parseFloat(reportData.overview?.avgDuration || 0))} min</span>
-                                </div>
-                                <div className="metric-item">
-                                  <span>Peak Hour</span>
-                                  <span className="metric-value">{reportData.overview?.peakHour || '2:00 PM'}</span>
-                                </div>
-                                <div className="metric-item">
-                                  <span>No-shows</span>
-                                  <span className="metric-value">{reportData.overview?.noShows || 0}</span>
-                                </div>
-                              </div>
-                            </div>
+                            {(() => {
+                              const analytics = calculateVisitorAnalytics();
+                              return (
+                                <>
+                                  <div className="chart-container">
+                                    <h3>Daily Visitor Trends</h3>
+                                    {visitorTrendData && visitorTrendData.labels && visitorTrendData.labels.length > 0 ? (
+                                      <div style={{ position: 'relative', height: '300px', width: '100%' }}>
+                                        <Line 
+                                          data={visitorTrendData} 
+                                          options={{
+                                            responsive: true,
+                                            maintainAspectRatio: false,
+                                            scales: {
+                                              y: {
+                                                beginAtZero: true,
+                                                title: {
+                                                  display: true,
+                                                  text: 'Number of Visitors'
+                                                }
+                                              },
+                                              x: {
+                                                title: {
+                                                  display: true,
+                                                  text: 'Date'
+                                                }
+                                              }
+                                            },
+                                            plugins: {
+                                              legend: {
+                                                display: true,
+                                                position: 'top'
+                                              },
+                                              tooltip: {
+                                                mode: 'index',
+                                                intersect: false
+                                              }
+                                            },
+                                            interaction: {
+                                              mode: 'nearest',
+                                              axis: 'x',
+                                              intersect: false
+                                            }
+                                          }} 
+                                        />
+                                      </div>
+                                    ) : (
+                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px', color: '#666' }}>
+                                        <p>No visitor trend data available for the selected period</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                  
+                                  <div className="visitor-metrics">
+                                    <h3>Visitor Metrics</h3>
+                                    <div className="metrics-grid">
+                                      <div className="metric-item">
+                                        <span>Total Visitors</span>
+                                        <span className="metric-value">{analytics.totalVisitors}</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>First-time Visitors</span>
+                                        <span className="metric-value">{analytics.uniqueVisitors}</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>Returning Visitors</span>
+                                        <span className="metric-value">{analytics.returningVisitors}</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>Average Duration</span>
+                                        <span className="metric-value">{analytics.avgDuration} min</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>Peak Hour</span>
+                                        <span className="metric-value">{analytics.peakHour}</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>No-shows</span>
+                                        <span className="metric-value">{analytics.noShows}</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>Check-in Rate</span>
+                                        <span className="metric-value">{analytics.checkInRate}%</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>Completed Visits</span>
+                                        <span className="metric-value">{analytics.completedVisits}</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>Busiest Day</span>
+                                        <span className="metric-value">{analytics.busiestDay}</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>Top Visit Reason</span>
+                                        <span className="metric-value">{analytics.topVisitReason}</span>
+                                      </div>
+                                      <div className="metric-item">
+                                        <span>Most Visited Host</span>
+                                        <span className="metric-value">{analytics.topHost}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="visitor-insights">
+                                    <h3>Visitor Insights</h3>
+                                    <div className="insights-grid">
+                                      <div className="insight-card">
+                                        <h4>Visit Patterns</h4>
+                                        <ul>
+                                          <li>Peak visiting hour: <strong>{analytics.peakHour}</strong></li>
+                                          <li>Busiest day of week: <strong>{analytics.busiestDay}</strong></li>
+                                          <li>Average visit duration: <strong>{analytics.avgDuration} minutes</strong></li>
+                                          <li>Check-in completion rate: <strong>{analytics.checkInRate}%</strong></li>
+                                        </ul>
+                                      </div>
+                                      
+                                      {/* <div className="insight-card">
+                                        <h4>Visitor Behavior</h4>
+                                        <ul>
+                                          <li>Total unique visitors: <strong>{analytics.uniqueVisitors}</strong></li>
+                                          <li>Returning visitors: <strong>{analytics.returningVisitors}</strong></li>
+                                          <li>No-show rate: <strong>{analytics.totalVisitors > 0 ? Math.round((analytics.noShows / analytics.totalVisitors) * 100) : 0}%</strong></li>
+                                          <li>Most common visit reason: <strong>{analytics.topVisitReason}</strong></li>
+                                        </ul>
+                                      </div> */}
+                                      
+                                      {/* <div className="insight-card">
+                                        <h4>Popular Destinations</h4>
+                                        <ul>
+                                          <li>Most visited host: <strong>{analytics.topHost}</strong></li>
+                                          <li>Total hosts visited: <strong>{Object.keys(analytics.hostMeetings).length}</strong></li>
+                                          <li>Visit reasons tracked: <strong>{Object.keys(analytics.visitReasons).length}</strong></li>
+                                          <li>Active visiting days: <strong>{Object.keys(analytics.dayOfWeekCounts).length}</strong></li>
+                                        </ul>
+                                      </div> */}
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         ) : (
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px', color: '#666' }}>
@@ -4651,78 +5092,188 @@ const AdminDashboardPage = () => {
 
                     {activeReportTab === 'hosts' && reportData && (
                       <div className="hosts-tab">
-                        <div className="host-performance">
-                          <div className="chart-container">
-                            <h3>Host Activity</h3>
-                            {hostActivityData && <Bar data={hostActivityData} options={{
-                              scales: {
-                                y: { beginAtZero: true, title: { display: true, text: 'Number of Visitors' } },
-                                x: { title: { display: true, text: 'Host Name' } }
-                              },
-                              plugins: { title: { display: true, text: 'Host Activity' } }
-                            }} />}
-                          </div>
-                          <div className="host-rankings">
-                            <h3>Top Performing Hosts</h3>
-                            <div className="rankings-list">
-                              {reportData.hostStats?.slice(0, 5).map((host, index) => (
-                                <div key={index} className="ranking-item">
-                                  <span className="rank">#{index + 1}</span>
-                                  <span className="host-name">{host.host_name}</span>
-                                  <span className="visitor-count">{host.visits} visitors</span>
+                        {(() => {
+                          const hostPerformance = calculateHostPerformance();
+                          return (
+                            <>
+                              <div className="host-performance">
+                                <div className="chart-container">
+                                  <h3>Host Activity</h3>
+                                  {hostActivityData && <Bar data={hostActivityData} options={{
+                                    scales: {
+                                      y: { beginAtZero: true, title: { display: true, text: 'Number of Visitors' } },
+                                      x: { title: { display: true, text: 'Host Name' } }
+                                    },
+                                    plugins: { title: { display: true, text: 'Host Activity' } }
+                                  }} />}
                                 </div>
-                              ))}
-                            </div>
-                          </div>
-                        </div>
+                                
+                                <div className="host-rankings">
+                                  <h3>Top Performing Hosts</h3>
+                                  <div className="rankings-list">
+                                    {hostPerformance.slice(0, 5).map((host, index) => (
+                                      <div key={index} className="ranking-item">
+                                        <span className="rank">#{index + 1}</span>
+                                        <span className="host-name">{host.host_name}</span>
+                                        <span className="visitor-count">{host.visits} visitors</span>
+                                        <span className="avg-duration">{host.averageDuration}min avg</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="host-detailed-metrics">
+                                <h3>Host Performance Metrics</h3>
+                                <div className="host-metrics-grid">
+                                  {hostPerformance.slice(0, 10).map((host, index) => (
+                                    <div key={index} className="host-metric-card">
+                                      <h4>{host.host_name}</h4>
+                                      <div className="host-stats">
+                                        <div className="stat-row">
+                                          <span>Total Visits:</span>
+                                          <span className="stat-value">{host.visits}</span>
+                                        </div>
+                                        <div className="stat-row">
+                                          <span>Completed Visits:</span>
+                                          <span className="stat-value">{host.completedVisits}</span>
+                                        </div>
+                                        <div className="stat-row">
+                                          <span>Average Duration:</span>
+                                          <span className="stat-value">{host.averageDuration} min</span>
+                                        </div>
+                                        <div className="stat-row">
+                                          <span>No-shows:</span>
+                                          <span className="stat-value">{host.noShows}</span>
+                                        </div>
+                                        <div className="stat-row">
+                                          <span>Peak Hour:</span>
+                                          <span className="stat-value">{host.peakHour}</span>
+                                        </div>
+                                        <div className="stat-row">
+                                          <span>Top Reason:</span>
+                                          <span className="stat-value">{host.topReason}</span>
+                                        </div>
+                                        <div className="stat-row">
+                                          <span>Last Visit:</span>
+                                          <span className="stat-value">
+                                            {host.lastVisit ? host.lastVisit.toLocaleDateString() : 'N/A'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
                       </div>
                     )}
 
-                    {activeReportTab === 'security' && reportData && (
+                    {activeReportTab === 'security' && (
                       <div className="security-tab">
-                        <div className="security-insights">
-                          <div className="security-alerts">
-                            <h3>Security Alerts</h3>
-                            <div className="alerts-list">
-                              <div className="alert-item low">
-                                <div className="alert-time">Today 10:30 AM</div>
-                                <div className="alert-message">All security checks passed</div>
-                                <div className="alert-status">Resolved</div>
+                        {(() => {
+                          const security = calculateSecurityInsights();
+                          return (
+                            <div className="security-insights">
+                              <div className="security-alerts">
+                                <h3>Security Alerts</h3>
+                                <div className="alerts-list">
+                                  {security.blacklistedAttempts.length > 0 && (
+                                    <div className="alert-item high">
+                                      <div className="alert-time">Active</div>
+                                      <div className="alert-message">
+                                        {security.blacklistedAttempts.length} blacklisted visitor{security.blacklistedAttempts.length > 1 ? 's' : ''} detected
+                                      </div>
+                                      <div className="alert-status">Action Required</div>
+                                    </div>
+                                  )}
+                                  {security.overstays.length > 0 && (
+                                    <div className="alert-item high">
+                                      <div className="alert-time">Active</div>
+                                      <div className="alert-message">
+                                        {security.overstays.length} overstay incident{security.overstays.length > 1 ? 's' : ''} detected
+                                      </div>
+                                      <div className="alert-status">Action Required</div>
+                                    </div>
+                                  )}
+                                  {security.incompleteCheckouts.length > 0 && (
+                                    <div className="alert-item medium">
+                                      <div className="alert-time">24+ hours ago</div>
+                                      <div className="alert-message">
+                                        {security.incompleteCheckouts.length} visitor{security.incompleteCheckouts.length > 1 ? 's' : ''} never checked out
+                                      </div>
+                                      <div className="alert-status">Monitor</div>
+                                    </div>
+                                  )}
+                                  {security.blacklistedAttempts.length === 0 && security.overstays.length === 0 && security.incompleteCheckouts.length === 0 && (
+                                    <div className="alert-item low">
+                                      <div className="alert-time">{new Date().toLocaleTimeString()}</div>
+                                      <div className="alert-message">All security checks passed</div>
+                                      <div className="alert-status">Normal</div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                              {visitorCounts.blacklisted > 0 && (
-                                <div className="alert-item medium">
-                                  <div className="alert-time">Active</div>
-                                  <div className="alert-message">{visitorCounts.blacklisted} blacklisted visitors detected</div>
-                                  <div className="alert-status">Monitor</div>
-                                </div>
-                              )}
-                              {visits.filter(v => getOverstayAlert(v) === 'danger').length > 0 && (
-                                <div className="alert-item high">
-                                  <div className="alert-time">Active</div>
-                                  <div className="alert-message">{visits.filter(v => getOverstayAlert(v) === 'danger').length} overstay incidents detected</div>
-                                  <div className="alert-status">Action Required</div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
                           <div className="compliance-metrics">
                             <h3>Compliance Metrics</h3>
                             <div className="compliance-grid">
                               <div className="compliance-item">
                                 <span>ID Verification Rate</span>
-                                <span>100%</span>
+                                <span>
+                                  {(() => {
+                                    const totalVisitors = filteredVisits.length;
+                                    if (totalVisitors === 0) return '0%';
+                                    const withIdCard = filteredVisits.filter(v => 
+                                      v.idCardNumber && v.idCardNumber.trim() !== ''
+                                    ).length;
+                                    return `${Math.round((withIdCard / totalVisitors) * 100)}%`;
+                                  })()}
+                                </span>
                               </div>
                               <div className="compliance-item">
                                 <span>Photo Capture Rate</span>
-                                <span>95%</span>
+                                <span>
+                                  {(() => {
+                                    const totalVisitors = filteredVisits.length;
+                                    if (totalVisitors === 0) return '0%';
+                                    const withPhoto = filteredVisits.filter(v => 
+                                      v.visitorPhoto && v.visitorPhoto.trim() !== ''
+                                    ).length;
+                                    return `${Math.round((withPhoto / totalVisitors) * 100)}%`;
+                                  })()}
+                                </span>
                               </div>
                               <div className="compliance-item">
-                                <span>Badge Printing</span>
-                                <span>90%</span>
+                                <span>Complete Information Rate</span>
+                                <span>
+                                  {(() => {
+                                    const totalVisitors = filteredVisits.length;
+                                    if (totalVisitors === 0) return '0%';
+                                    const complete = filteredVisits.filter(v => 
+                                      v.visitor_name && v.visitor_name.trim() !== '' && 
+                                      v.visitor_email && v.visitor_email.trim() !== '' && 
+                                      v.visitor_phone && v.visitor_phone.trim() !== '' &&
+                                      v.reason && v.reason.trim() !== ''
+                                    ).length;
+                                    return `${Math.round((complete / totalVisitors) * 100)}%`;
+                                  })()}
+                                </span>
                               </div>
                               <div className="compliance-item">
-                                <span>Emergency Procedures</span>
-                                <span>100%</span>
+                                <span>Proper Checkout Rate</span>
+                                <span>
+                                  {(() => {
+                                    const checkedIn = filteredVisits.filter(v => v.check_in_time && v.check_in_time.trim() !== '').length;
+                                    if (checkedIn === 0) return '0%';
+                                    const checkedOut = filteredVisits.filter(v => 
+                                      v.check_in_time && v.check_in_time.trim() !== '' && 
+                                      v.check_out_time && v.check_out_time.trim() !== ''
+                                    ).length;
+                                    return `${Math.round((checkedOut / checkedIn) * 100)}%`;
+                                  })()}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -4730,22 +5281,49 @@ const AdminDashboardPage = () => {
                             <div className="dashboard-stats">
                               <div className="stat-card">
                                 <h4>Blacklisted Visitors</h4>
-                                <p>{visitorCounts.blacklisted}</p>
+                                <p>{security.blacklistedAttempts.length}</p>
                                 <small>Restricted entries</small>
                               </div>
                               <div className="stat-card">
                                 <h4>Overstay Incidents</h4>
-                                <p>{visits.filter(v => getOverstayAlert(v) === 'danger').length}</p>
+                                <p>{security.overstays.length}</p>
                                 <small>Visitors staying &gt;8 hours</small>
                               </div>
                               <div className="stat-card">
-                                <h4>Warning Alerts</h4>
-                                <p>{visits.filter(v => getOverstayAlert(v) === 'warning').length}</p>
-                                <small>Visitors staying &gt;4 hours</small>
+                                <h4>Incomplete Checkouts</h4>
+                                <p>{security.incompleteCheckouts.length}</p>
+                                <small>Never checked out (24h+)</small>
+                              </div>
+                              <div className="stat-card">
+                                <h4>After-hours Visits</h4>
+                                <p>{security.afterHoursVisits.length}</p>
+                                <small>Visits before 8AM or after 6PM</small>
+                              </div>
+                              <div className="stat-card">
+                                <h4>Frequent Visitors</h4>
+                                <p>{security.frequentVisitors.length}</p>
+                                <small>5+ visits in period</small>
+                              </div>
+                              <div className="stat-card">
+                                <h4>No-shows</h4>
+                                <p>{security.noShows.length}</p>
+                                <small>Scheduled but never arrived</small>
+                              </div>
+                              <div className="stat-card">
+                                <h4>Security Score</h4>
+                                <p>{security.securityScore}%</p>
+                                <small>Overall compliance rate</small>
+                              </div>
+                              <div className="stat-card">
+                                <h4>Risk Level</h4>
+                                <p>{security.riskLevel}</p>
+                                <small>System risk assessment</small>
                               </div>
                             </div>
                           </div>
                         </div>
+                      );
+                        })()}
                       </div>
                     )}
 
@@ -6303,6 +6881,7 @@ const AdminDashboardPage = () => {
           )}
         </div>
       </div>
+      <AdminFooter />
     </div>
   );
 };
