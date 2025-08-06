@@ -505,6 +505,37 @@
   margin: 0;
 }
 
+.clickable-stat-card {
+  position: relative;
+  overflow: visible;
+}
+
+.clickable-stat-card:hover {
+  border: 2px solid #0984e3 !important;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e3f2fd 100%) !important;
+}
+
+.clickable-stat-card:hover::after {
+  content: "👆 Click to view details";
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  color: white;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.clickable-stat-card:active {
+  transform: translateY(1px);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
 .login-btn {
   background-color: #f0ad4e;
   color: #fff;
@@ -1258,5 +1289,176 @@
   
   .visitor-analytics {
     gap: 20px;
+  }
+}
+
+/* Blacklisted Visitors Modal Styles */
+.blacklisted-visitors-table {
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.blacklisted-visitors-table th {
+  background-color: #f8f9fa;
+  color: #495057;
+  font-weight: 600;
+  text-align: left;
+  padding: 12px;
+  border-bottom: 2px solid #dee2e6;
+  font-size: 14px;
+}
+
+.blacklisted-visitors-table td {
+  padding: 12px;
+  border-bottom: 1px solid #dee2e6;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.blacklisted-visitors-table tr:hover {
+  background-color: #fff5f5;
+}
+
+/* Overstay Incidents Modal Styles */
+.overstay-visitors-table {
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.overstay-visitors-table th {
+  background-color: #f8f9fa;
+  color: #495057;
+  font-weight: 600;
+  text-align: left;
+  padding: 12px;
+  border-bottom: 2px solid #dee2e6;
+  font-size: 14px;
+}
+
+.overstay-visitors-table td {
+  padding: 12px;
+  border-bottom: 1px solid #dee2e6;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.overstay-visitors-table tr:hover {
+  background-color: #fffbf0;
+}
+
+/* Incomplete Checkouts Modal Styles */
+.incomplete-checkout-visitors-table {
+  font-family: 'Segoe UI', 'Roboto', Arial, sans-serif;
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 10px;
+}
+
+.incomplete-checkout-visitors-table th {
+  background-color: #f8f9fa;
+  color: #495057;
+  font-weight: 600;
+  text-align: left;
+  padding: 12px;
+  border-bottom: 2px solid #dee2e6;
+  font-size: 14px;
+}
+
+.incomplete-checkout-visitors-table td {
+  padding: 12px;
+  border-bottom: 1px solid #dee2e6;
+  vertical-align: top;
+  font-size: 13px;
+}
+
+.incomplete-checkout-visitors-table tr:hover {
+  background-color: #f0f8ff;
+}
+
+.unblacklist-btn {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.unblacklist-btn:hover:not(:disabled) {
+  background-color: #218838;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.unblacklist-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.blacklisted-table-wrapper,
+.overstay-table-wrapper,
+.incomplete-checkout-table-wrapper {
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #dee2e6;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.modal-body {
+  padding: 20px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.modal-footer {
+  padding: 15px 20px;
+  border-top: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+  text-align: right;
+}
+
+/* Responsive adjustments for security modals */
+@media (max-width: 768px) {
+  .blacklisted-visitors-table,
+  .overstay-visitors-table,
+  .incomplete-checkout-visitors-table {
+    font-size: 12px;
+  }
+  
+  .blacklisted-visitors-table th,
+  .blacklisted-visitors-table td,
+  .overstay-visitors-table th,
+  .overstay-visitors-table td,
+  .incomplete-checkout-visitors-table th,
+  .incomplete-checkout-visitors-table td {
+    padding: 8px;
+  }
+  
+  .modal-content {
+    margin: 10px;
+    max-width: calc(100% - 20px) !important;
   }
 }

@@ -37,6 +37,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
+import html2canvas from 'html2canvas';
 import '../styles/AdminDashboardPage.css';
 import '../styles/AdvancedVisitorPage.css';
 import '../styles/ReportsPage.css';
@@ -77,6 +78,12 @@ const AdminDashboardPage = () => {
   const [companyInfo, setCompanyInfo] = useState(null);
   const [selectedVisitor, setSelectedVisitor] = useState(null);
   const [showVisitorDetails, setShowVisitorDetails] = useState(false);
+  const [showBlacklistedModal, setShowBlacklistedModal] = useState(false);
+  const [blacklistedVisitors, setBlacklistedVisitors] = useState([]);
+  const [showOverstayModal, setShowOverstayModal] = useState(false);
+  const [overstayVisitors, setOverstayVisitors] = useState([]);
+  const [showIncompleteCheckoutsModal, setShowIncompleteCheckoutsModal] = useState(false);
+  const [incompleteCheckoutVisitors, setIncompleteCheckoutVisitors] = useState([]);
   const [activeVisitorTab, setActiveVisitorTab] = useState('all');
   const [expandedMenus, setExpandedMenus] = useState({
     dashboard: true,
@@ -108,6 +115,17 @@ const AdminDashboardPage = () => {
     clients: 0,
     partners: 0,
     other: 0
+  });
+  // Add state to persist overview statistics
+  const [overviewStats, setOverviewStats] = useState({
+    totalVisitors: 0,
+    uniqueVisitors: 0,
+    avgDuration: 0,
+    peakHour: 'N/A',
+    noShows: 0,
+    securityIncidents: 0,
+    blacklistedIncidents: 0,
+    overstayIncidents: 0
   });
   const [reportData, setReportData] = useState(null);
   const [reportDateRange, setReportDateRange] = useState({
@@ -268,6 +286,15 @@ const AdminDashboardPage = () => {
     }
     setFilteredVisits(filtered);
   }, [visits, filters, activeVisitorTab]);
+
+  // Update overview stats when filtered visits change
+  useEffect(() => {
+    if (filteredVisits.length > 0) {
+      const stats = calculateOverviewStats();
+      setOverviewStats(stats);
+      console.log('📊 Overview stats updated:', stats);
+    }
+  }, [filteredVisits]);
 
   // Filter visits by category
   const filterVisitsByCategory = useCallback((visits, category) => {
@@ -699,10 +726,12 @@ const formatDuration = (minutes) => {
 
   // Calculate statistics for current period
   const calculateOverviewStats = () => {
-    const totalVisitors = filteredVisits.length;
+    // 1. Total Visitors: Only count visitors who actually checked in
+    const checkedInVisitors = filteredVisits.filter(visit => visit.check_in_time);
+    const totalVisitors = checkedInVisitors.length;
     
-    // Calculate unique visitors by email
-    const uniqueEmails = new Set(filteredVisits.map(visit => 
+    // Calculate unique visitors by email (only from checked-in visitors)
+    const uniqueEmails = new Set(checkedInVisitors.map(visit => 
       visit.visitor_email || visit.visitorEmail || 'unknown'
     ).filter(email => email !== 'unknown'));
     const uniqueVisitors = uniqueEmails.size;
@@ -722,13 +751,11 @@ const formatDuration = (minutes) => {
       avgDuration = Math.round(totalDuration / completedVisits.length);
     }
     
-    // Calculate peak hour
+    // Calculate peak hour (only from checked-in visitors)
     const hourCounts = {};
-    filteredVisits.forEach(visit => {
-      if (visit.check_in_time) {
-        const hour = new Date(visit.check_in_time).getHours();
-        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
-      }
+    checkedInVisitors.forEach(visit => {
+      const hour = new Date(visit.check_in_time).getHours();
+      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
     });
     
     const peakHour = Object.entries(hourCounts).reduce((peak, [hour, count]) => 
@@ -744,10 +771,25 @@ const formatDuration = (minutes) => {
       new Date(visit.visit_date) < new Date()
     ).length;
     
-    // Calculate security incidents (blacklisted visitors who attempted visits)
-    const securityIncidents = filteredVisits.filter(visit => 
+    // 2. Security Incidents: Include blacklisted visitors AND overstay incidents
+    const now = new Date();
+    
+    // Blacklisted visitors
+    const blacklistedIncidents = filteredVisits.filter(visit => 
       visit.isBlacklisted || visit.is_blacklisted
     ).length;
+    
+    // Overstay incidents (visits longer than 8 hours)
+    const overstayIncidents = filteredVisits.filter(visit => {
+      if (!visit.check_in_time) return false;
+      const checkInTime = new Date(visit.check_in_time);
+      const endTime = visit.check_out_time ? new Date(visit.check_out_time) : now;
+      const hoursStayed = (endTime - checkInTime) / (1000 * 60 * 60);
+      return hoursStayed > 8;
+    }).length;
+    
+    // Total security incidents
+    const securityIncidents = blacklistedIncidents + overstayIncidents;
     
     return {
       totalVisitors,
@@ -755,7 +797,9 @@ const formatDuration = (minutes) => {
       avgDuration,
       peakHour: peakHourFormatted,
       noShows,
-      securityIncidents
+      securityIncidents,
+      blacklistedIncidents,
+      overstayIncidents
     };
   };
 
@@ -1055,353 +1099,491 @@ const formatDuration = (minutes) => {
     };
   };
 
-  // Enhanced PDF Export Function
+  // Enhanced PDF Export Function with Charts and Graphs
   const exportToPDF = async () => {
-  try {
-    setLoading(true);
-    
-    // Use the statically imported libraries
-    const doc = new jsPDF();
+    try {
+      setLoading(true);
+      
+      const doc = new jsPDF();
+      let yPosition = 20;
 
-    // Add header
-    doc.setFontSize(20);
-    doc.text('Visitor Management System Report', 20, 20);
-    
-    // Add date range
-    doc.setFontSize(12);
-    doc.text(`Report Period: ${reportDateRange.startDate} to ${reportDateRange.endDate}`, 20, 35);
-    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 20, 45);
-    
-    let yPosition = 60;
-    
-    // 1. Calculate real overview statistics from actual data
-    const realOverviewStats = calculateOverviewStats();
-    
-    // Overview Statistics Table with real calculations
-    doc.setFontSize(16);
-    doc.text('Overview Statistics', 20, yPosition);
-    yPosition += 15;
-    
-    autoTable(doc, {
-      startY: yPosition,
-      head: [['Metric', 'Value']],
-      body: [
-        ['Total Visitors', realOverviewStats.totalVisitors],
-        ['Unique Visitors', realOverviewStats.uniqueVisitors],
-        ['Avg Duration (min)', realOverviewStats.avgDuration],
-        ['Peak Hour', realOverviewStats.peakHour],
-        ['No-shows', realOverviewStats.noShows],
-        ['Security Incidents', realOverviewStats.securityIncidents]
-      ],
-      theme: 'striped',
-      headStyles: { fillColor: [41, 128, 185] },
-      margin: { left: 20, right: 20 }
-    });
-    
-    yPosition = doc.lastAutoTable.finalY + 20;
-    
-    // 2. Visitor Status Distribution Table with real calculations
-    const calculateStatusDistribution = () => {
-      const statusCounts = {
-        'Total Visitors': filteredVisits.length,
-        'Checked In': 0,
-        'Checked Out': 0,
-        'Pending': 0,
-        'Expected': 0,
-        'Blacklisted': 0
+      // Helper function to add charts to PDF
+      const addChartToPDF = async (chartId, title, width = 160, height = 80) => {
+        try {
+          const chartElement = document.getElementById(chartId);
+          if (chartElement) {
+            const canvas = await html2canvas(chartElement, {
+              backgroundColor: '#ffffff',
+              scale: 2,
+              logging: false
+            });
+            
+            const imgData = canvas.toDataURL('image/png');
+            
+            // Check if we need a new page
+            if (yPosition + height > 250) {
+              doc.addPage();
+              yPosition = 20;
+            }
+            
+            // Add chart title
+            doc.setFontSize(14);
+            doc.setFont(undefined, 'bold');
+            doc.text(title, 20, yPosition);
+            yPosition += 10;
+            
+            // Add chart image
+            doc.addImage(imgData, 'PNG', 20, yPosition, width, height);
+            yPosition += height + 15;
+            
+            return true;
+          }
+        } catch (error) {
+          console.error(`Error adding chart ${chartId}:`, error);
+        }
+        return false;
       };
-      
-      filteredVisits.forEach(visit => {
-        const category = getVisitorCategory(visit);
-        switch (category) {
-          case 'Checked-In':
-            statusCounts['Checked In']++;
-            break;
-          case 'Checked-Out':
-            statusCounts['Checked Out']++;
-            break;
-          case 'Pending':
-            statusCounts['Pending']++;
-            break;
-          case 'Expected':
-            statusCounts['Expected']++;
-            break;
-          case 'Blacklisted':
-            statusCounts['Blacklisted']++;
-            break;
-        }
-      });
-      
-      return statusCounts;
-    };
-    
-    const realStatusDistribution = calculateStatusDistribution();
-    
-    doc.setFontSize(16);
-    doc.text('Visitor Status Distribution', 20, yPosition);
-    yPosition += 15;
-    
-    autoTable(doc, {
-      startY: yPosition,
-      head: [['Status', 'Count', 'Percentage']],
-      body: Object.entries(realStatusDistribution).map(([status, count]) => {
-        const percentage = realStatusDistribution['Total Visitors'] > 0 
-          ? ((count / realStatusDistribution['Total Visitors']) * 100).toFixed(1) + '%'
-          : '0%';
-        return [status, count, status === 'Total Visitors' ? '100%' : percentage];
-      }),
-      theme: 'striped',
-      headStyles: { fillColor: [41, 128, 185] },
-      margin: { left: 20, right: 20 }
-    });
-    
-    yPosition = doc.lastAutoTable.finalY + 20;
-    
-    // 3. Host Performance Table with real calculations (with page break check)
-    const calculateHostPerformance = () => {
-      const hostStats = {};
-      
-      filteredVisits.forEach(visit => {
-        const hostName = visit.host_name || visit.hostName || 'Unknown Host';
-        if (hostStats[hostName]) {
-          hostStats[hostName].visits++;
-          // Calculate average rating if available
-          if (visit.rating) {
-            hostStats[hostName].totalRating += parseInt(visit.rating);
-            hostStats[hostName].ratedVisits++;
-          }
-          // Track unique visitors
-          const visitorEmail = visit.visitor_email || visit.visitorEmail;
-          if (visitorEmail) {
-            hostStats[hostName].uniqueVisitors.add(visitorEmail);
-          }
-        } else {
-          hostStats[hostName] = {
-            visits: 1,
-            totalRating: visit.rating ? parseInt(visit.rating) : 0,
-            ratedVisits: visit.rating ? 1 : 0,
-            uniqueVisitors: new Set(visit.visitor_email || visit.visitorEmail ? [visit.visitor_email || visit.visitorEmail] : [])
-          };
-        }
-      });
-      
-      // Convert to array and calculate averages
-      return Object.entries(hostStats)
-        .map(([hostName, stats]) => ({
-          host_name: hostName,
-          visits: stats.visits,
-          uniqueVisitors: stats.uniqueVisitors.size,
-          avgRating: stats.ratedVisits > 0 ? (stats.totalRating / stats.ratedVisits).toFixed(1) : 'N/A'
-        }))
-        .sort((a, b) => b.visits - a.visits) // Sort by visit count descending
-        .slice(0, 10); // Top 10 hosts
-    };
-    
-    const realHostStats = calculateHostPerformance();
-    
-    if (realHostStats.length > 0) {
-      if (yPosition > 230) {
-        doc.addPage();
-        yPosition = 20;
-      }
-      
-      doc.setFontSize(16);
-      doc.text('Top Performing Hosts', 20, yPosition);
-      yPosition += 15;
-      
-      autoTable(doc, {
-        startY: yPosition,
-        head: [['Host Name', 'Total Visits', 'Unique Visitors', 'Avg Rating']],
-        body: realHostStats.map(host => [
-          host.host_name, 
-          host.visits, 
-          host.uniqueVisitors,
-          host.avgRating
-        ]),
-        theme: 'striped',
-        headStyles: { fillColor: [41, 128, 185] },
-        margin: { left: 20, right: 20 }
-      });
-      
-      yPosition = doc.lastAutoTable.finalY + 20;
-    }
-    
-    // 4. Recent Visits Table with enhanced real data (on new page)
-    if (filteredVisits.length > 0) {
-      doc.addPage();
-      doc.setFontSize(16);
-      doc.text('Recent Visitor Activity', 20, 20);
-      
-      // Sort visits by most recent check-in time or visit date
-      const sortedVisits = [...filteredVisits]
-        .filter(visit => visit.visitor_name || visit.visitorName) // Filter out entries without names
-        .sort((a, b) => {
-          const dateA = new Date(a.check_in_time || a.visit_date || 0);
-          const dateB = new Date(b.check_in_time || b.visit_date || 0);
-          return dateB - dateA; // Most recent first
-        })
-        .slice(0, 25); // Top 25 most recent visits
-      
-      autoTable(doc, {
-        startY: 35,
-        head: [['Visitor', 'Host', 'Check-In', 'Check-Out', 'Duration', 'Visit Reason', 'Purpose']],
-        body: sortedVisits.map(visit => {
-          const checkInTime = visit.check_in_time ? new Date(visit.check_in_time) : null;
-          const checkOutTime = visit.check_out_time ? new Date(visit.check_out_time) : null;
+
+      // Create temporary chart containers for PDF generation
+      const createTemporaryCharts = () => {
+        const tempContainer = document.createElement('div');
+        tempContainer.style.position = 'absolute';
+        tempContainer.style.left = '-9999px';
+        tempContainer.style.width = '800px';
+        tempContainer.style.height = '400px';
+        document.body.appendChild(tempContainer);
+
+        // Chart configurations
+        const chartConfigs = {
+          visitorStatusChart: {
+            type: 'doughnut',
+            data: {
+              labels: ['Checked In', 'Checked Out', 'Pending', 'Expected', 'Blacklisted'],
+              datasets: [{
+                data: [
+                  visitorCounts['checked-in'] || 0,
+                  visitorCounts['checked-out'] || 0,
+                  visitorCounts.pending || 0,
+                  visitorCounts.expected || 0,
+                  visitorCounts.blacklisted || 0
+                ],
+                backgroundColor: [
+                  '#4CAF50', // Green for checked in
+                  '#2196F3', // Blue for checked out
+                  '#FF9800', // Orange for pending
+                  '#9C27B0', // Purple for expected
+                  '#F44336'  // Red for blacklisted
+                ],
+                borderWidth: 2,
+                borderColor: '#ffffff'
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: {
+                  position: 'bottom',
+                  labels: {
+                    padding: 15,
+                    usePointStyle: true
+                  }
+                },
+                title: {
+                  display: true,
+                  text: 'Visitor Status Distribution',
+                  font: { size: 16, weight: 'bold' }
+                }
+              }
+            }
+          },
           
-          // Calculate actual duration
-          let duration = 'N/A';
-          if (checkInTime && checkOutTime) {
-            const durationMinutes = Math.round((checkOutTime - checkInTime) / (1000 * 60));
-            const hours = Math.floor(durationMinutes / 60);
-            const minutes = durationMinutes % 60;
-            duration = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-          } else if (checkInTime && !checkOutTime) {
-            const currentTime = new Date();
-            const durationMinutes = Math.round((currentTime - checkInTime) / (1000 * 60));
-            const hours = Math.floor(durationMinutes / 60);
-            const minutes = durationMinutes % 60;
-            duration = `${hours > 0 ? `${hours}h ` : ''}${minutes}m (ongoing)`;
+          visitTrendsChart: {
+            type: 'line',
+            data: {
+              labels: getLast7Days(),
+              datasets: [{
+                label: 'Daily Visits',
+                data: calculateDailyVisits(),
+                borderColor: '#2196F3',
+                backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                tension: 0.4,
+                fill: true,
+                pointBackgroundColor: '#2196F3',
+                pointRadius: 4
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: {
+                  display: true,
+                  position: 'top'
+                },
+                title: {
+                  display: true,
+                  text: 'Visit Trends (Last 7 Days)',
+                  font: { size: 16, weight: 'bold' }
+                }
+              },
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  grid: { color: 'rgba(0,0,0,0.1)' },
+                  ticks: { stepSize: 1 }
+                },
+                x: {
+                  grid: { color: 'rgba(0,0,0,0.1)' }
+                }
+              }
+            }
+          },
+
+          hourlyTrafficChart: {
+            type: 'bar',
+            data: {
+              labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+              datasets: [{
+                label: 'Visits by Hour',
+                data: calculateHourlyTraffic(),
+                backgroundColor: 'rgba(76, 175, 80, 0.8)',
+                borderColor: '#4CAF50',
+                borderWidth: 1
+              }]
+            },
+            options: {
+              responsive: true,
+              plugins: {
+                legend: {
+                  display: true,
+                  position: 'top'
+                },
+                title: {
+                  display: true,
+                  text: 'Hourly Traffic Distribution',
+                  font: { size: 16, weight: 'bold' }
+                }
+              },
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  grid: { color: 'rgba(0,0,0,0.1)' },
+                  ticks: { stepSize: 1 }
+                },
+                x: {
+                  grid: { display: false }
+                }
+              }
+            }
+          },
+
+          purposeAnalysisChart: {
+            type: 'bar',
+            data: {
+              labels: getTopPurposes().map(p => p.purpose.length > 15 ? p.purpose.substring(0, 15) + '...' : p.purpose),
+              datasets: [{
+                label: 'Visit Count',
+                data: getTopPurposes().map(p => p.count),
+                backgroundColor: [
+                  '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+                  '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+                ],
+                borderWidth: 1
+              }]
+            },
+            options: {
+              responsive: true,
+              indexAxis: 'y',
+              plugins: {
+                legend: {
+                  display: false
+                },
+                title: {
+                  display: true,
+                  text: 'Top Visit Purposes',
+                  font: { size: 16, weight: 'bold' }
+                }
+              },
+              scales: {
+                x: {
+                  beginAtZero: true,
+                  grid: { color: 'rgba(0,0,0,0.1)' }
+                },
+                y: {
+                  grid: { display: false }
+                }
+              }
+            }
           }
+        };
+
+        // Create chart elements
+        Object.entries(chartConfigs).forEach(([chartId, config]) => {
+          const chartContainer = document.createElement('div');
+          chartContainer.style.width = '400px';
+          chartContainer.style.height = '300px';
+          chartContainer.style.marginBottom = '20px';
           
-          return [
-            visit.visitor_name || visit.visitorName || 'N/A',
-            visit.host_name || visit.hostName || 'N/A',
-            checkInTime ? checkInTime.toLocaleString() : 'Not checked in',
-            checkOutTime ? checkOutTime.toLocaleString() : 'Not checked out',
-            duration,
-            visit.reason || visit.purpose || 'No reason specified',
-            visit.purpose || visit.reason || 'N/A'
-          ];
-        }),
-        theme: 'striped',
-        headStyles: { fillColor: [41, 128, 185] },
-        margin: { left: 20, right: 20 },
-        styles: { fontSize: 8 }, // Smaller font for more data
-        columnStyles: {
-          0: { cellWidth: 25 }, // Visitor name
-          1: { cellWidth: 25 }, // Host name
-          2: { cellWidth: 30 }, // Check-in
-          3: { cellWidth: 30 }, // Check-out
-          4: { cellWidth: 20 }, // Duration
-          5: { cellWidth: 20 }, // Status
-          6: { cellWidth: 30 }  // Purpose
+          const canvas = document.createElement('canvas');
+          canvas.id = `pdf-${chartId}`;
+          canvas.width = 400;
+          canvas.height = 300;
+          
+          chartContainer.appendChild(canvas);
+          tempContainer.appendChild(chartContainer);
+          
+          // Create chart
+          new ChartJS(canvas.getContext('2d'), config);
+        });
+
+        return tempContainer;
+      };
+
+      // Helper functions for chart data
+      const getLast7Days = () => {
+        const days = [];
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date();
+          date.setDate(date.getDate() - i);
+          days.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
         }
-      });
-    }
-    
-    // 5. Visit Purpose Analysis with real calculations
-    const calculatePurposeStats = () => {
-      const purposeCounts = {};
-      
-      filteredVisits.forEach(visit => {
-        const purpose = (visit.purpose || visit.reason || 'Not Specified').trim();
-        if (purpose) {
+        return days;
+      };
+
+      const calculateDailyVisits = () => {
+        const dailyCounts = new Array(7).fill(0);
+        const today = new Date();
+        
+        filteredVisits.forEach(visit => {
+          if (visit.check_in_time || visit.visit_date) {
+            const visitDate = new Date(visit.check_in_time || visit.visit_date);
+            const daysDiff = Math.floor((today - visitDate) / (1000 * 60 * 60 * 24));
+            if (daysDiff >= 0 && daysDiff < 7) {
+              dailyCounts[6 - daysDiff]++;
+            }
+          }
+        });
+        
+        return dailyCounts;
+      };
+
+      const calculateHourlyTraffic = () => {
+        const hourlyData = new Array(24).fill(0);
+        
+        filteredVisits.forEach(visit => {
+          if (visit.check_in_time) {
+            const hour = new Date(visit.check_in_time).getHours();
+            hourlyData[hour]++;
+          }
+        });
+        
+        return hourlyData;
+      };
+
+      const getTopPurposes = () => {
+        const purposeCounts = {};
+        
+        filteredVisits.forEach(visit => {
+          const purpose = (visit.purpose || visit.reason || 'Not Specified').trim();
           purposeCounts[purpose] = (purposeCounts[purpose] || 0) + 1;
-        }
+        });
+        
+        return Object.entries(purposeCounts)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 8)
+          .map(([purpose, count]) => ({ purpose, count }));
+      };
+
+      // Add PDF header
+      doc.setFontSize(24);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(41, 128, 185);
+      doc.text('Visitor Management System', 20, yPosition);
+      
+      yPosition += 10;
+      doc.setFontSize(20);
+      doc.setTextColor(0, 0, 0);
+      doc.text('Analytics Report', 20, yPosition);
+      
+      yPosition += 15;
+      doc.setFontSize(12);
+      doc.setFont(undefined, 'normal');
+      doc.text(`Report Period: ${reportDateRange.startDate} to ${reportDateRange.endDate}`, 20, yPosition);
+      yPosition += 8;
+      doc.text(`Generated on: ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`, 20, yPosition);
+      yPosition += 20;
+
+      // Add executive summary
+      doc.setFontSize(16);
+      doc.setFont(undefined, 'bold');
+      doc.text('Executive Summary', 20, yPosition);
+      yPosition += 10;
+
+      const realOverviewStats = overviewStats;
+      
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'normal');
+      const summaryText = [
+        `• Total visitors processed: ${realOverviewStats.totalVisitors}`,
+        `• Unique visitors: ${realOverviewStats.uniqueVisitors}`,
+        `• Average visit duration: ${realOverviewStats.avgDuration} minutes`,
+        `• Peak visitor hour: ${realOverviewStats.peakHour}`,
+        `• Current active visitors: ${visitorCounts['checked-in'] || 0}`,
+        `• System utilization: ${filteredVisits.length > 0 ? 'Active' : 'Low'}`
+      ];
+      
+      summaryText.forEach(text => {
+        doc.text(text, 25, yPosition);
+        yPosition += 6;
       });
       
-      // Sort by count and get top purposes
-      return Object.entries(purposeCounts)
-        .sort(([,a], [,b]) => b - a)
-        .slice(0, 10)
-        .map(([purpose, count]) => ({
-          purpose: purpose.length > 30 ? purpose.substring(0, 30) + '...' : purpose,
-          count,
-          percentage: ((count / filteredVisits.length) * 100).toFixed(1)
-        }));
-    };
-    
-    const purposeStats = calculatePurposeStats();
-    
-    if (purposeStats.length > 0) {
-      // Add new page if needed
-      if (doc.internal.getCurrentPageInfo().pageNumber === 1 || yPosition > 200) {
+      yPosition += 10;
+
+      // Create temporary charts for PDF
+      const tempChartContainer = createTemporaryCharts();
+      
+      // Wait for charts to render
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Add charts to PDF
+      doc.addPage();
+      yPosition = 20;
+      
+      doc.setFontSize(18);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(41, 128, 185);
+      doc.text('Visual Analytics', 20, yPosition);
+      yPosition += 20;
+
+      // Add visitor status chart
+      await addChartToPDF('pdf-visitorStatusChart', 'Visitor Status Distribution', 160, 100);
+      
+      // Add visit trends chart
+      await addChartToPDF('pdf-visitTrendsChart', 'Visit Trends (Last 7 Days)', 160, 100);
+      
+      // Add hourly traffic chart
+      if (yPosition > 180) {
         doc.addPage();
         yPosition = 20;
       }
+      await addChartToPDF('pdf-hourlyTrafficChart', 'Hourly Traffic Distribution', 160, 100);
+      
+      // Add purpose analysis chart
+      await addChartToPDF('pdf-purposeAnalysisChart', 'Top Visit Purposes', 160, 100);
+
+      // Clean up temporary charts
+      document.body.removeChild(tempChartContainer);
+
+      // Add detailed statistics table
+      doc.addPage();
+      yPosition = 20;
       
       doc.setFontSize(16);
-      doc.text('Visit Purpose Analysis', 20, yPosition);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(0, 0, 0);
+      doc.text('Detailed Statistics', 20, yPosition);
       yPosition += 15;
       
       autoTable(doc, {
         startY: yPosition,
-        head: [['Purpose', 'Count', 'Percentage']],
-        body: purposeStats.map(stat => [stat.purpose, stat.count, stat.percentage + '%']),
-        theme: 'striped',
-        headStyles: { fillColor: [41, 128, 185] },
-        margin: { left: 20, right: 20 }
-      });
-    }
-    
-    // 6. Time-based Analysis
-    const calculateTimeStats = () => {
-      const hourlyStats = new Array(24).fill(0);
-      const weeklyStats = new Array(7).fill(0);
-      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      
-      filteredVisits.forEach(visit => {
-        if (visit.check_in_time) {
-          const date = new Date(visit.check_in_time);
-          const hour = date.getHours();
-          const day = date.getDay();
-          
-          hourlyStats[hour]++;
-          weeklyStats[day]++;
-        }
-      });
-      
-      // Find peak hour and day
-      const peakHour = hourlyStats.indexOf(Math.max(...hourlyStats));
-      const peakDay = weeklyStats.indexOf(Math.max(...weeklyStats));
-      
-      return {
-        peakHour: `${peakHour}:00 - ${peakHour + 1}:00`,
-        peakDay: dayNames[peakDay],
-        peakHourVisits: hourlyStats[peakHour],
-        peakDayVisits: weeklyStats[peakDay],
-        totalCheckedIn: filteredVisits.filter(v => v.check_in_time).length
-      };
-    };
-    
-    const timeStats = calculateTimeStats();
-    
-    if (timeStats.totalCheckedIn > 0) {
-      doc.addPage();
-      doc.setFontSize(16);
-      doc.text('Time-based Visitor Analysis', 20, 20);
-      
-      autoTable(doc, {
-        startY: 35,
-        head: [['Metric', 'Value']],
+        head: [['Metric', 'Value', 'Details']],
         body: [
-          ['Peak Hour', timeStats.peakHour],
-          ['Peak Hour Visits', timeStats.peakHourVisits],
-          ['Peak Day', timeStats.peakDay],
-          ['Peak Day Visits', timeStats.peakDayVisits],
-          ['Total Check-ins Analyzed', timeStats.totalCheckedIn]
+          ['Total Visitors', realOverviewStats.totalVisitors, 'All visitors in date range'],
+          ['Unique Visitors', realOverviewStats.uniqueVisitors, 'Distinct visitor count'],
+          ['Average Duration', realOverviewStats.avgDuration + ' min', 'Based on check-in/out times'],
+          ['Peak Hour', realOverviewStats.peakHour, 'Highest traffic period'],
+          ['No-shows', realOverviewStats.noShows, 'Expected but not arrived'],
+          ['Active Visits', visitorCounts['checked-in'] || 0, 'Currently checked in'],
+          ['Completed Visits', visitorCounts['checked-out'] || 0, 'Successfully checked out'],
+          ['Pending Approvals', visitorCounts.pending || 0, 'Awaiting host approval'],
+          ['Blacklisted', visitorCounts.blacklisted || 0, 'Restricted visitors']
         ],
         theme: 'striped',
-        headStyles: { fillColor: [41, 128, 185] },
-        margin: { left: 20, right: 20 }
+        headStyles: { 
+          fillColor: [41, 128, 185],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold'
+        },
+        alternateRowStyles: { fillColor: [245, 245, 245] },
+        margin: { left: 20, right: 20 },
+        styles: { fontSize: 10 }
       });
+
+      // Add recent visitor activity
+      if (filteredVisits.length > 0) {
+        doc.addPage();
+        doc.setFontSize(16);
+        doc.setFont(undefined, 'bold');
+        doc.text('Recent Visitor Activity', 20, 20);
+        
+        const sortedVisits = [...filteredVisits]
+          .filter(visit => visit.visitor_name || visit.visitorName)
+          .sort((a, b) => {
+            const dateA = new Date(a.check_in_time || a.visit_date || 0);
+            const dateB = new Date(b.check_in_time || b.visit_date || 0);
+            return dateB - dateA;
+          })
+          .slice(0, 20);
+        
+        autoTable(doc, {
+          startY: 35,
+          head: [['Visitor', 'Host', 'Check-In', 'Status', 'Purpose']],
+          body: sortedVisits.map(visit => {
+            const checkInTime = visit.check_in_time ? new Date(visit.check_in_time) : null;
+            const status = visit.check_out_time ? 'Completed' : 
+                          visit.check_in_time ? 'Active' : 'Pending';
+            
+            return [
+              visit.visitor_name || visit.visitorName || 'N/A',
+              visit.host_name || visit.hostName || 'N/A',
+              checkInTime ? checkInTime.toLocaleString() : 'Not checked in',
+              status,
+              (visit.purpose || visit.reason || 'Not specified').substring(0, 30)
+            ];
+          }),
+          theme: 'striped',
+          headStyles: { 
+            fillColor: [41, 128, 185],
+            textColor: [255, 255, 255],
+            fontStyle: 'bold'
+          },
+          alternateRowStyles: { fillColor: [245, 245, 245] },
+          margin: { left: 20, right: 20 },
+          styles: { fontSize: 9 },
+          columnStyles: {
+            0: { cellWidth: 35 },
+            1: { cellWidth: 35 },
+            2: { cellWidth: 40 },
+            3: { cellWidth: 25 },
+            4: { cellWidth: 45 }
+          }
+        });
+      }
+
+      // Add footer to all pages
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(128, 128, 128);
+        doc.text(`Page ${i} of ${pageCount}`, 20, 285);
+        doc.text('Visitor Management System - Confidential Report', 105, 285, { align: 'center' });
+        doc.text(`Generated: ${new Date().toLocaleDateString()}`, 190, 285, { align: 'right' });
+      }
+
+      // Save the PDF
+      const fileName = `VMS-Analytics-Report-${reportDateRange.startDate}-to-${reportDateRange.endDate}.pdf`;
+      doc.save(fileName);
+      
+      setMessage('Enhanced PDF report with charts exported successfully');
+      setTimeout(() => setMessage(''), 5000);
+      
+    } catch (err) {
+      setError('Failed to export enhanced PDF report');
+      console.error('Enhanced PDF Export Error:', err);
+    } finally {
+      setLoading(false);
     }
-    
-    // Save the PDF
-    const fileName = `visitor-report-${reportDateRange.startDate}-to-${reportDateRange.endDate}.pdf`;
-    doc.save(fileName);
-    
-    setMessage('PDF report exported successfully');
-    setTimeout(() => setMessage(''), 5000);
-    
-  } catch (err) {
-    setError('Failed to export PDF report');
-    console.error('PDF Export Error:', err);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
   // Enhanced Excel Export Function
   const exportToExcel = async () => {
     try {
@@ -1790,6 +1972,54 @@ const formatDuration = (minutes) => {
     } catch (error) {
       setError('Failed to remove visitor from blacklist');
       console.error(error);
+    }
+  };
+
+  const handleShowBlacklistedModal = async () => {
+    try {
+      setLoading(true);
+      setShowBlacklistedModal(true);
+      
+      // Fetch blacklisted visitors data
+      const blacklistedData = await getBlacklistedVisitors();
+      console.log('Fetched blacklisted visitors for modal:', blacklistedData);
+      setBlacklistedVisitors(blacklistedData);
+    } catch (error) {
+      setError('Failed to load blacklisted visitors');
+      console.error('Error fetching blacklisted visitors:', error);
+      setBlacklistedVisitors([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleShowOverstayModal = () => {
+    try {
+      setShowOverstayModal(true);
+      
+      // Calculate overstay visitors from current filteredVisits
+      const security = calculateSecurityInsights();
+      console.log('Overstay visitors for modal:', security.overstays);
+      setOverstayVisitors(security.overstays);
+    } catch (error) {
+      setError('Failed to load overstay incidents');
+      console.error('Error fetching overstay visitors:', error);
+      setOverstayVisitors([]);
+    }
+  };
+
+  const handleShowIncompleteCheckoutsModal = () => {
+    try {
+      setShowIncompleteCheckoutsModal(true);
+      
+      // Calculate incomplete checkouts from current filteredVisits
+      const security = calculateSecurityInsights();
+      console.log('Incomplete checkout visitors for modal:', security.incompleteCheckouts);
+      setIncompleteCheckoutVisitors(security.incompleteCheckouts);
+    } catch (error) {
+      setError('Failed to load incomplete checkouts');
+      console.error('Error fetching incomplete checkout visitors:', error);
+      setIncompleteCheckoutVisitors([]);
     }
   };
 
@@ -2872,7 +3102,11 @@ const formatDuration = (minutes) => {
   return (
     <div className="admin-dashboard-bg">
       <nav className="navbar">
-        <div className="navbar-logo">Visitor Management</div>
+        {/* <div className="navbar-logo">Visitor Management</div>
+       */}
+       <div className="navbar-logo">
+          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
+        </div>
         <ul className="navbar-links">
           {/* <li><Link to="/">Home</Link></li>
           <li><Link to="/products">Products</Link></li>
@@ -4850,7 +5084,7 @@ const formatDuration = (minutes) => {
                           <>
                             <div className="stats-grid">
                               {(() => {
-                                const currentStats = calculateOverviewStats();
+                                const currentStats = overviewStats;
                                 const previousStats = calculatePreviousStats();
                                 const visitorChange = calculatePercentageChange(currentStats.totalVisitors, previousStats.totalVisitors);
                                 const durationChange = calculatePercentageChange(currentStats.avgDuration, previousStats.avgDuration);
@@ -4892,36 +5126,384 @@ const formatDuration = (minutes) => {
                             </div>
 
                             <div className="charts-grid">
+                              {/* Visitor Status Distribution Chart */}
+                              <div className="chart-container">
+                                <h3>Visitor Status Distribution</h3>
+                                {(() => {
+                                  const statusData = {
+                                    labels: ['Checked In', 'Checked Out', 'Pending', 'Expected', 'Blacklisted'],
+                                    datasets: [{
+                                      data: [
+                                        visitorCounts['checked-in'] || 0,
+                                        visitorCounts['checked-out'] || 0,
+                                        visitorCounts.pending || 0,
+                                        visitorCounts.expected || 0,
+                                        visitorCounts.blacklisted || 0
+                                      ],
+                                      backgroundColor: [
+                                        '#4CAF50', // Green for checked in
+                                        '#2196F3', // Blue for checked out
+                                        '#FF9800', // Orange for pending
+                                        '#9C27B0', // Purple for expected
+                                        '#F44336'  // Red for blacklisted
+                                      ],
+                                      borderColor: [
+                                        '#45a049', '#1976D2', '#F57C00', '#7B1FA2', '#D32F2F'
+                                      ],
+                                      borderWidth: 2,
+                                      hoverBorderWidth: 3
+                                    }]
+                                  };
+                                  
+                                  return (
+                                    <div style={{ position: 'relative', height: '280px', width: '100%' }}>
+                                      <Doughnut 
+                                        data={statusData} 
+                                        options={{
+                                          responsive: true,
+                                          maintainAspectRatio: false,
+                                          plugins: {
+                                            legend: {
+                                              position: 'bottom',
+                                              labels: {
+                                                padding: 15,
+                                                usePointStyle: true,
+                                                font: { size: 12 }
+                                              }
+                                            },
+                                            tooltip: {
+                                              callbacks: {
+                                                label: function(context) {
+                                                  const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                                  const percentage = total > 0 ? ((context.parsed / total) * 100).toFixed(1) : 0;
+                                                  return `${context.label}: ${context.parsed} (${percentage}%)`;
+                                                }
+                                              }
+                                            }
+                                          },
+                                          cutout: '50%'
+                                        }} 
+                                      />
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+
+                              {/* Visitor Trends Chart */}
                               <div className="chart-container">
                                 <h3>Visitor Trends (Last 30 Days)</h3>
                                 {visitorTrendData ? (
-                                  <div style={{ position: 'relative', height: '250px', width: '100%' }}>
-                                    <Line data={visitorTrendData} options={chartOptions} />
+                                  <div style={{ position: 'relative', height: '280px', width: '100%' }}>
+                                    <Line 
+                                      data={{
+                                        ...visitorTrendData,
+                                        datasets: visitorTrendData.datasets.map(dataset => ({
+                                          ...dataset,
+                                          borderColor: '#2196F3',
+                                          backgroundColor: 'rgba(33, 150, 243, 0.1)',
+                                          tension: 0.4,
+                                          fill: true,
+                                          pointBackgroundColor: '#2196F3',
+                                          pointBorderColor: '#ffffff',
+                                          pointBorderWidth: 2,
+                                          pointRadius: 4,
+                                          pointHoverRadius: 6
+                                        }))
+                                      }} 
+                                      options={{
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                          legend: {
+                                            display: false
+                                          },
+                                          tooltip: {
+                                            mode: 'index',
+                                            intersect: false,
+                                            backgroundColor: 'rgba(0,0,0,0.8)',
+                                            titleColor: '#ffffff',
+                                            bodyColor: '#ffffff'
+                                          }
+                                        },
+                                        scales: {
+                                          y: {
+                                            beginAtZero: true,
+                                            grid: {
+                                              color: 'rgba(0,0,0,0.1)'
+                                            },
+                                            ticks: {
+                                              stepSize: 1
+                                            }
+                                          },
+                                          x: {
+                                            grid: {
+                                              color: 'rgba(0,0,0,0.1)'
+                                            }
+                                          }
+                                        },
+                                        interaction: {
+                                          mode: 'nearest',
+                                          axis: 'x',
+                                          intersect: false
+                                        }
+                                      }} 
+                                    />
                                   </div>
                                 ) : (
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '250px', color: '#666' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '280px', color: '#666' }}>
                                     <p>No data available for visitor trends</p>
                                   </div>
                                 )}
                               </div>
+
+                              {/* Hourly Traffic Distribution */}
                               <div className="chart-container">
-                                <h3>Visit Reasons Distribution</h3>
+                                <h3>Hourly Traffic Distribution</h3>
+                                {(() => {
+                                  const hourlyData = new Array(24).fill(0);
+                                  filteredVisits.forEach(visit => {
+                                    if (visit.check_in_time) {
+                                      const hour = new Date(visit.check_in_time).getHours();
+                                      hourlyData[hour]++;
+                                    }
+                                  });
+                                  
+                                  const chartData = {
+                                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                                    datasets: [{
+                                      label: 'Visits by Hour',
+                                      data: hourlyData,
+                                      backgroundColor: 'rgba(76, 175, 80, 0.8)',
+                                      borderColor: '#4CAF50',
+                                      borderWidth: 1,
+                                      borderRadius: 4
+                                    }]
+                                  };
+                                  
+                                  return (
+                                    <div style={{ position: 'relative', height: '280px', width: '100%' }}>
+                                      <Bar 
+                                        data={chartData} 
+                                        options={{
+                                          responsive: true,
+                                          maintainAspectRatio: false,
+                                          plugins: {
+                                            legend: {
+                                              display: false
+                                            },
+                                            tooltip: {
+                                              backgroundColor: 'rgba(0,0,0,0.8)',
+                                              titleColor: '#ffffff',
+                                              bodyColor: '#ffffff'
+                                            }
+                                          },
+                                          scales: {
+                                            y: {
+                                              beginAtZero: true,
+                                              grid: {
+                                                color: 'rgba(0,0,0,0.1)'
+                                              },
+                                              ticks: {
+                                                stepSize: 1
+                                              }
+                                            },
+                                            x: {
+                                              grid: {
+                                                display: false
+                                              }
+                                            }
+                                          }
+                                        }} 
+                                      />
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+
+                              {/* Visit Reasons Distribution */}
+                              <div className="chart-container">
+                                <h3>Visit Purposes Distribution</h3>
                                 {visitReasonData ? (
-                                  <div style={{ position: 'relative', height: '250px', width: '100%' }}>
-                                    <Doughnut data={visitReasonData} options={{
-                                      responsive: true,
-                                      maintainAspectRatio: false,
-                                      plugins: {
-                                        title: { display: true, text: 'Visit Purpose Distribution' },
-                                        legend: { position: 'bottom' }
-                                      }
-                                    }} />
+                                  <div style={{ position: 'relative', height: '280px', width: '100%' }}>
+                                    <Doughnut 
+                                      data={{
+                                        ...visitReasonData,
+                                        datasets: visitReasonData.datasets.map(dataset => ({
+                                          ...dataset,
+                                          borderWidth: 2,
+                                          hoverBorderWidth: 3
+                                        }))
+                                      }} 
+                                      options={{
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                          legend: { 
+                                            position: 'bottom',
+                                            labels: {
+                                              padding: 15,
+                                              usePointStyle: true,
+                                              font: { size: 11 }
+                                            }
+                                          },
+                                          tooltip: {
+                                            callbacks: {
+                                              label: function(context) {
+                                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                                const percentage = total > 0 ? ((context.parsed / total) * 100).toFixed(1) : 0;
+                                                return `${context.label}: ${context.parsed} visits (${percentage}%)`;
+                                              }
+                                            }
+                                          }
+                                        },
+                                        cutout: '45%'
+                                      }} 
+                                    />
                                   </div>
                                 ) : (
-                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '250px', color: '#666' }}>
-                                    <p>No data available for visit reasons</p>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '280px', color: '#666' }}>
+                                    <p>No data available for visit purposes</p>
                                   </div>
                                 )}
+                              </div>
+
+                              {/* Weekly Traffic Pattern */}
+                              <div className="chart-container">
+                                <h3>Weekly Traffic Pattern</h3>
+                                {(() => {
+                                  const weeklyData = new Array(7).fill(0);
+                                  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                                  
+                                  filteredVisits.forEach(visit => {
+                                    if (visit.check_in_time) {
+                                      const day = new Date(visit.check_in_time).getDay();
+                                      weeklyData[day]++;
+                                    }
+                                  });
+                                  
+                                  const chartData = {
+                                    labels: dayNames,
+                                    datasets: [{
+                                      label: 'Visits by Day',
+                                      data: weeklyData,
+                                      backgroundColor: [
+                                        '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', 
+                                        '#9966FF', '#FF9F40', '#FF6384'
+                                      ],
+                                      borderColor: [
+                                        '#FF4567', '#1976D2', '#FFC107', '#00BCD4',
+                                        '#673AB7', '#FF5722', '#FF4567'
+                                      ],
+                                      borderWidth: 2,
+                                      borderRadius: 4
+                                    }]
+                                  };
+                                  
+                                  return (
+                                    <div style={{ position: 'relative', height: '280px', width: '100%' }}>
+                                      <Bar 
+                                        data={chartData} 
+                                        options={{
+                                          responsive: true,
+                                          maintainAspectRatio: false,
+                                          plugins: {
+                                            legend: {
+                                              display: false
+                                            },
+                                            tooltip: {
+                                              backgroundColor: 'rgba(0,0,0,0.8)',
+                                              titleColor: '#ffffff',
+                                              bodyColor: '#ffffff'
+                                            }
+                                          },
+                                          scales: {
+                                            y: {
+                                              beginAtZero: true,
+                                              grid: {
+                                                color: 'rgba(0,0,0,0.1)'
+                                              },
+                                              ticks: {
+                                                stepSize: 1
+                                              }
+                                            },
+                                            x: {
+                                              grid: {
+                                                display: false
+                                              }
+                                            }
+                                          }
+                                        }} 
+                                      />
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+
+                              {/* Top Hosts Performance */}
+                              <div className="chart-container">
+                                <h3>Top Performing Hosts</h3>
+                                {(() => {
+                                  const hostStats = {};
+                                  filteredVisits.forEach(visit => {
+                                    const hostName = (visit.host_name || visit.hostName || 'Unknown').substring(0, 15);
+                                    hostStats[hostName] = (hostStats[hostName] || 0) + 1;
+                                  });
+                                  
+                                  const sortedHosts = Object.entries(hostStats)
+                                    .sort(([,a], [,b]) => b - a)
+                                    .slice(0, 8);
+                                  
+                                  const chartData = {
+                                    labels: sortedHosts.map(([name]) => name),
+                                    datasets: [{
+                                      label: 'Visitor Count',
+                                      data: sortedHosts.map(([,count]) => count),
+                                      backgroundColor: 'rgba(156, 39, 176, 0.8)',
+                                      borderColor: '#9C27B0',
+                                      borderWidth: 1,
+                                      borderRadius: 4
+                                    }]
+                                  };
+                                  
+                                  return (
+                                    <div style={{ position: 'relative', height: '280px', width: '100%' }}>
+                                      <Bar 
+                                        data={chartData} 
+                                        options={{
+                                          responsive: true,
+                                          maintainAspectRatio: false,
+                                          indexAxis: 'y',
+                                          plugins: {
+                                            legend: {
+                                              display: false
+                                            },
+                                            tooltip: {
+                                              backgroundColor: 'rgba(0,0,0,0.8)',
+                                              titleColor: '#ffffff',
+                                              bodyColor: '#ffffff'
+                                            }
+                                          },
+                                          scales: {
+                                            x: {
+                                              beginAtZero: true,
+                                              grid: {
+                                                color: 'rgba(0,0,0,0.1)'
+                                              },
+                                              ticks: {
+                                                stepSize: 1
+                                              }
+                                            },
+                                            y: {
+                                              grid: {
+                                                display: false
+                                              }
+                                            }
+                                          }
+                                        }} 
+                                      />
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           </>
@@ -5033,14 +5615,14 @@ const formatDuration = (minutes) => {
                                         <span>Busiest Day</span>
                                         <span className="metric-value">{analytics.busiestDay}</span>
                                       </div>
-                                      <div className="metric-item">
+                                      {/* <div className="metric-item">
                                         <span>Top Visit Reason</span>
                                         <span className="metric-value">{analytics.topVisitReason}</span>
                                       </div>
                                       <div className="metric-item">
                                         <span>Most Visited Host</span>
                                         <span className="metric-value">{analytics.topHost}</span>
-                                      </div>
+                                      </div> */}
                                     </div>
                                   </div>
                                   
@@ -5174,7 +5756,7 @@ const formatDuration = (minutes) => {
                     {activeReportTab === 'security' && (
                       <div className="security-tab">
                         {(() => {
-                          const security = calculateSecurityInsights();
+                          const security = securityStats;
                           return (
                             <div className="security-insights">
                               <div className="security-alerts">
@@ -5279,20 +5861,20 @@ const formatDuration = (minutes) => {
                           </div>
                           <div className="security-stats">
                             <div className="dashboard-stats">
-                              <div className="stat-card">
+                              <div className="stat-card clickable-stat-card" onClick={handleShowBlacklistedModal} style={{ cursor: 'pointer' }}>
                                 <h4>Blacklisted Visitors</h4>
                                 <p>{security.blacklistedAttempts.length}</p>
-                                <small>Restricted entries</small>
+                                <small>Restricted entries - Click to view details</small>
                               </div>
-                              <div className="stat-card">
+                              <div className="stat-card clickable-stat-card" onClick={handleShowOverstayModal} style={{ cursor: 'pointer' }}>
                                 <h4>Overstay Incidents</h4>
                                 <p>{security.overstays.length}</p>
-                                <small>Visitors staying &gt;8 hours</small>
+                                <small>Visitors staying &gt;8 hours - Click to view details</small>
                               </div>
-                              <div className="stat-card">
+                              <div className="stat-card clickable-stat-card" onClick={handleShowIncompleteCheckoutsModal} style={{ cursor: 'pointer' }}>
                                 <h4>Incomplete Checkouts</h4>
                                 <p>{security.incompleteCheckouts.length}</p>
-                                <small>Never checked out (24h+)</small>
+                                <small>Never checked out (24h+) - Click to view details</small>
                               </div>
                               <div className="stat-card">
                                 <h4>After-hours Visits</h4>
@@ -5976,6 +6558,523 @@ const formatDuration = (minutes) => {
                   ) : (
                     <p>No visit history available.</p>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Blacklisted Visitors Modal */}
+          {showBlacklistedModal && (
+            <div className="modal-overlay" onClick={() => setShowBlacklistedModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90%', maxHeight: '90%' }}>
+                <div className="modal-header">
+                  <h3>🚫 Blacklisted Visitors</h3>
+                  <button className="modal-close" onClick={() => setShowBlacklistedModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                  {loading ? (
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                      <p>Loading blacklisted visitors...</p>
+                    </div>
+                  ) : blacklistedVisitors.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                      <p>✅ No blacklisted visitors found.</p>
+                      <p>Your security status is clear.</p>
+                    </div>
+                  ) : (
+                    <div className="blacklisted-visitors-content">
+                      <div className="blacklisted-summary" style={{ 
+                        backgroundColor: '#ffebee', 
+                        border: '1px solid #ffcdd2', 
+                        borderRadius: '8px', 
+                        padding: '15px', 
+                        marginBottom: '20px' 
+                      }}>
+                        <h4 style={{ color: '#d32f2f', margin: '0 0 10px 0' }}>
+                          ⚠️ Security Alert: {blacklistedVisitors.length} Blacklisted Visitor{blacklistedVisitors.length > 1 ? 's' : ''}
+                        </h4>
+                        <p style={{ margin: '0', fontSize: '14px', color: '#666' }}>
+                          These visitors have been flagged and restricted from accessing the premises.
+                        </p>
+                      </div>
+
+                      <div className="blacklisted-table-wrapper">
+                        <table className="blacklisted-visitors-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: '#f5f5f5' }}>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Photo</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Visitor Name</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Email</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Phone</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Host Met</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Last Visit</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Blacklist Reason</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {blacklistedVisitors.map((visitor, index) => (
+                              <tr key={visitor.visitor_id || visitor.id || index} style={{ borderBottom: '1px solid #eee' }}>
+                                <td style={{ padding: '12px' }}>
+                                  {visitor.picture || visitor.photo || visitor.visitorPhoto ? (
+                                    <img 
+                                      src={visitor.picture || visitor.photo || visitor.visitorPhoto} 
+                                      alt="Visitor" 
+                                      style={{ 
+                                        width: '40px', 
+                                        height: '40px', 
+                                        borderRadius: '50%', 
+                                        objectFit: 'cover',
+                                        border: '2px solid #d32f2f'
+                                      }} 
+                                    />
+                                  ) : (
+                                    <div style={{ 
+                                      width: '40px', 
+                                      height: '40px', 
+                                      borderRadius: '50%', 
+                                      backgroundColor: '#ffebee', 
+                                      border: '2px solid #d32f2f',
+                                      display: 'flex', 
+                                      alignItems: 'center', 
+                                      justifyContent: 'center',
+                                      fontSize: '18px'
+                                    }}>
+                                      👤
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  <div style={{ fontWeight: 'bold', color: '#d32f2f' }}>
+                                    {visitor.person_name || visitor.visitor_name || visitor.name || 'N/A'}
+                                  </div>
+                                  <div style={{ 
+                                    fontSize: '12px', 
+                                    backgroundColor: '#ffebee', 
+                                    color: '#d32f2f', 
+                                    padding: '2px 6px', 
+                                    borderRadius: '10px', 
+                                    display: 'inline-block', 
+                                    marginTop: '4px' 
+                                  }}>
+                                    🚫 BLACKLISTED
+                                  </div>
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  {visitor.email || visitor.visitor_email || 'N/A'}
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  {visitor.phone || visitor.visitor_phone || 'N/A'}
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  {visitor.person_to_meet || visitor.host_name || 'N/A'}
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  {visitor.visit_date || visitor.check_in_time ? 
+                                    new Date(visitor.visit_date || visitor.check_in_time).toLocaleDateString() : 
+                                    'N/A'
+                                  }
+                                </td>
+                                <td style={{ padding: '12px', maxWidth: '200px' }}>
+                                  <div style={{ 
+                                    fontSize: '13px', 
+                                    color: '#d32f2f',
+                                    backgroundColor: '#ffebee',
+                                    padding: '6px 8px',
+                                    borderRadius: '4px',
+                                    border: '1px solid #ffcdd2'
+                                  }}>
+                                    {visitor.reason_to_blacklist || visitor.reason_for_blacklist || visitor.blacklist_reason || 'No reason specified'}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  <button
+                                    onClick={() => {
+                                      if (visitor.visitor_id) {
+                                        handleRemoveFromBlacklist(visitor.visitor_id);
+                                        setShowBlacklistedModal(false);
+                                      } else {
+                                        setError('Cannot unblacklist: Visitor ID not found');
+                                      }
+                                    }}
+                                    className="unblacklist-btn"
+                                    disabled={!visitor.visitor_id}
+                                    title={!visitor.visitor_id ? 'Visitor ID not available' : `Remove ${visitor.email || visitor.visitor_email || 'this visitor'} from blacklist`}
+                                    style={{
+                                      backgroundColor: '#4caf50',
+                                      color: 'white',
+                                      border: 'none',
+                                      padding: '6px 12px',
+                                      borderRadius: '4px',
+                                      cursor: visitor.visitor_id ? 'pointer' : 'not-allowed',
+                                      fontSize: '12px',
+                                      opacity: visitor.visitor_id ? 1 : 0.6
+                                    }}
+                                  >
+                                    Remove from Blacklist
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  padding: '15px', 
+                  borderTop: '1px solid #eee', 
+                  backgroundColor: '#f9f9f9', 
+                  textAlign: 'right' 
+                }}>
+                  <button 
+                    onClick={() => setShowBlacklistedModal(false)}
+                    style={{
+                      backgroundColor: '#666',
+                      color: 'white',
+                      border: 'none',
+                      padding: '10px 20px',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Overstay Incidents Modal */}
+          {showOverstayModal && (
+            <div className="modal-overlay" onClick={() => setShowOverstayModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90%', maxHeight: '90%' }}>
+                <div className="modal-header">
+                  <h3>⏰ Overstay Incidents</h3>
+                  <button className="modal-close" onClick={() => setShowOverstayModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                  {overstayVisitors.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                      <p>✅ No overstay incidents found.</p>
+                      <p>All visitors are following proper visit duration guidelines.</p>
+                    </div>
+                  ) : (
+                    <div className="overstay-visitors-content">
+                      <div className="overstay-summary" style={{ 
+                        backgroundColor: '#fff3cd', 
+                        border: '1px solid #ffeaa7', 
+                        borderRadius: '8px', 
+                        padding: '15px', 
+                        marginBottom: '20px' 
+                      }}>
+                        <h4 style={{ color: '#856404', margin: '0 0 10px 0' }}>
+                          ⚠️ Security Alert: {overstayVisitors.length} Overstay Incident{overstayVisitors.length > 1 ? 's' : ''}
+                        </h4>
+                        <p style={{ margin: '0', fontSize: '14px', color: '#666' }}>
+                          These visitors have been on the premises for more than 8 hours without checking out.
+                        </p>
+                      </div>
+
+                      <div className="overstay-table-wrapper">
+                        <table className="overstay-visitors-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: '#f5f5f5' }}>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Photo</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Visitor Name</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Email</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Host</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Check-In Time</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Duration</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {overstayVisitors.map((visitor, index) => {
+                              const checkInTime = new Date(visitor.check_in_time);
+                              const now = new Date();
+                              const duration = Math.floor((now - checkInTime) / (1000 * 60 * 60)); // hours
+                              
+                              return (
+                                <tr key={visitor.id || index} style={{ borderBottom: '1px solid #eee' }}>
+                                  <td style={{ padding: '12px' }}>
+                                    {visitor.visitorPhoto || visitor.photo ? (
+                                      <img 
+                                        src={visitor.visitorPhoto || visitor.photo} 
+                                        alt="Visitor" 
+                                        style={{ 
+                                          width: '40px', 
+                                          height: '40px', 
+                                          borderRadius: '50%', 
+                                          objectFit: 'cover',
+                                          border: '2px solid #ffc107'
+                                        }} 
+                                      />
+                                    ) : (
+                                      <div style={{ 
+                                        width: '40px', 
+                                        height: '40px', 
+                                        borderRadius: '50%', 
+                                        backgroundColor: '#fff3cd', 
+                                        border: '2px solid #ffc107',
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        justifyContent: 'center',
+                                        fontSize: '18px'
+                                      }}>
+                                        👤
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    <div style={{ fontWeight: 'bold', color: '#856404' }}>
+                                      {visitor.visitorName || visitor.visitor_name || 'N/A'}
+                                    </div>
+                                    <div style={{ 
+                                      fontSize: '12px', 
+                                      backgroundColor: '#fff3cd', 
+                                      color: '#856404', 
+                                      padding: '2px 6px', 
+                                      borderRadius: '10px', 
+                                      display: 'inline-block', 
+                                      marginTop: '4px' 
+                                    }}>
+                                      ⏰ OVERSTAY
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    {visitor.visitorEmail || visitor.visitor_email || 'N/A'}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    {visitor.hostName || visitor.host_name || 'N/A'}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    {checkInTime.toLocaleString()}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    <div style={{ 
+                                      fontSize: '14px', 
+                                      fontWeight: 'bold',
+                                      color: duration > 12 ? '#dc3545' : '#ffc107'
+                                    }}>
+                                      {duration} hours
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#666' }}>
+                                      {duration > 12 ? 'Critical' : 'Warning'}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    <div style={{ 
+                                      fontSize: '13px', 
+                                      color: '#856404',
+                                      backgroundColor: '#fff3cd',
+                                      padding: '6px 8px',
+                                      borderRadius: '4px',
+                                      border: '1px solid #ffeaa7',
+                                      textAlign: 'center'
+                                    }}>
+                                      Still Checked In
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  padding: '15px', 
+                  borderTop: '1px solid #eee', 
+                  backgroundColor: '#f9f9f9', 
+                  textAlign: 'right' 
+                }}>
+                  <button 
+                    onClick={() => setShowOverstayModal(false)}
+                    style={{
+                      backgroundColor: '#666',
+                      color: 'white',
+                      border: 'none',
+                      padding: '10px 20px',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Incomplete Checkouts Modal */}
+          {showIncompleteCheckoutsModal && (
+            <div className="modal-overlay" onClick={() => setShowIncompleteCheckoutsModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90%', maxHeight: '90%' }}>
+                <div className="modal-header">
+                  <h3>🚪 Incomplete Checkouts</h3>
+                  <button className="modal-close" onClick={() => setShowIncompleteCheckoutsModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+                  {incompleteCheckoutVisitors.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                      <p>✅ No incomplete checkouts found.</p>
+                      <p>All visitors have properly checked out.</p>
+                    </div>
+                  ) : (
+                    <div className="incomplete-checkout-visitors-content">
+                      <div className="incomplete-checkout-summary" style={{ 
+                        backgroundColor: '#e1f5fe', 
+                        border: '1px solid #81d4fa', 
+                        borderRadius: '8px', 
+                        padding: '15px', 
+                        marginBottom: '20px' 
+                      }}>
+                        <h4 style={{ color: '#0277bd', margin: '0 0 10px 0' }}>
+                          ℹ️ System Alert: {incompleteCheckoutVisitors.length} Incomplete Checkout{incompleteCheckoutVisitors.length > 1 ? 's' : ''}
+                        </h4>
+                        <p style={{ margin: '0', fontSize: '14px', color: '#666' }}>
+                          These visitors checked in more than 24 hours ago but never checked out.
+                        </p>
+                      </div>
+
+                      <div className="incomplete-checkout-table-wrapper">
+                        <table className="incomplete-checkout-visitors-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ backgroundColor: '#f5f5f5' }}>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Photo</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Visitor Name</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Email</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Host</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Check-In Time</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Days Ago</th>
+                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {incompleteCheckoutVisitors.map((visitor, index) => {
+                              const checkInTime = new Date(visitor.check_in_time);
+                              const now = new Date();
+                              const daysAgo = Math.floor((now - checkInTime) / (1000 * 60 * 60 * 24));
+                              
+                              return (
+                                <tr key={visitor.id || index} style={{ borderBottom: '1px solid #eee' }}>
+                                  <td style={{ padding: '12px' }}>
+                                    {visitor.visitorPhoto || visitor.photo ? (
+                                      <img 
+                                        src={visitor.visitorPhoto || visitor.photo} 
+                                        alt="Visitor" 
+                                        style={{ 
+                                          width: '40px', 
+                                          height: '40px', 
+                                          borderRadius: '50%', 
+                                          objectFit: 'cover',
+                                          border: '2px solid #03a9f4'
+                                        }} 
+                                      />
+                                    ) : (
+                                      <div style={{ 
+                                        width: '40px', 
+                                        height: '40px', 
+                                        borderRadius: '50%', 
+                                        backgroundColor: '#e1f5fe', 
+                                        border: '2px solid #03a9f4',
+                                        display: 'flex', 
+                                        alignItems: 'center', 
+                                        justifyContent: 'center',
+                                        fontSize: '18px'
+                                      }}>
+                                        👤
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    <div style={{ fontWeight: 'bold', color: '#0277bd' }}>
+                                      {visitor.visitorName || visitor.visitor_name || 'N/A'}
+                                    </div>
+                                    <div style={{ 
+                                      fontSize: '12px', 
+                                      backgroundColor: '#e1f5fe', 
+                                      color: '#0277bd', 
+                                      padding: '2px 6px', 
+                                      borderRadius: '10px', 
+                                      display: 'inline-block', 
+                                      marginTop: '4px' 
+                                    }}>
+                                      🚪 NO CHECKOUT
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    {visitor.visitorEmail || visitor.visitor_email || 'N/A'}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    {visitor.hostName || visitor.host_name || 'N/A'}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    {checkInTime.toLocaleString()}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    <div style={{ 
+                                      fontSize: '14px', 
+                                      fontWeight: 'bold',
+                                      color: daysAgo > 7 ? '#dc3545' : daysAgo > 3 ? '#ffc107' : '#03a9f4'
+                                    }}>
+                                      {daysAgo} day{daysAgo > 1 ? 's' : ''}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#666' }}>
+                                      {daysAgo > 7 ? 'Critical' : daysAgo > 3 ? 'High' : 'Medium'}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    <div style={{ 
+                                      fontSize: '13px', 
+                                      color: '#0277bd',
+                                      backgroundColor: '#e1f5fe',
+                                      padding: '6px 8px',
+                                      borderRadius: '4px',
+                                      border: '1px solid #81d4fa',
+                                      textAlign: 'center'
+                                    }}>
+                                      Missing Checkout
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  padding: '15px', 
+                  borderTop: '1px solid #eee', 
+                  backgroundColor: '#f9f9f9', 
+                  textAlign: 'right' 
+                }}>
+                  <button 
+                    onClick={() => setShowIncompleteCheckoutsModal(false)}
+                    style={{
+                      backgroundColor: '#666',
+                      color: 'white',
+                      border: 'none',
+                      padding: '10px 20px',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
                 </div>
               </div>
             </div>
