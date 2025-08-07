@@ -3,15 +3,22 @@ import { Link, useLocation } from 'react-router-dom';
 import '../styles/MultiVisitorPage.css';
 
 const MultiVisitorPage = () => {
-    // Get the hostName from the navigation state, with a fallback.
+    // Get the host information from the navigation state, with fallbacks.
     const location = useLocation();
-    const { hostName } = location.state || { hostName: 'Host' };
+    const { hostId, hostName, companyName } = location.state || { 
+        hostId: '', 
+        hostName: 'Host', 
+        companyName: '' 
+    };
 
     return (
         <div className="multi-visitor-container">
             <div className="multi-visitor-card">
                 <h1 className="multi-visitor-title">Add a Visitor</h1>
-                <p className="multi-visitor-subtitle">How would you like to add the visitor's details?</p>
+                <p className="multi-visitor-subtitle">
+                    How would you like to add the visitor's details?
+                    {companyName && <span className="company-context"> (for {companyName})</span>}
+                </p>
                 
                 
 
@@ -22,20 +29,20 @@ const MultiVisitorPage = () => {
                 
                 
                   {/* Button to navigate to a future business card scanning page */}
-                    <Link to="/scanCard1" state={{ hostName }} className="scan-card-btn">
+                    <Link to="/scanCard1" state={{ hostId, hostName, companyName }} className="scan-card-btn">
                         Scan Business Card
                     </Link>
 
 
 
                     {/* Button to navigate to the QR code scanning page */}
-                    <Link to="/scanQr" state={{ hostName }} className="scan-qr-btn">
+                    <Link to="/scanQr" state={{ hostId, hostName, companyName }} className="scan-qr-btn">
                         Scan QR Code
                     </Link>
 
                 
                     {/* Button to navigate to the manual check-in page */}
-                    <Link to="/checkin" state={{ hostName }} className="manual-entry-btn">
+                    <Link to="/checkin" state={{ hostId, hostName, companyName }} className="manual-entry-btn">
                         Manually Enter the Data
                     </Link>
                     

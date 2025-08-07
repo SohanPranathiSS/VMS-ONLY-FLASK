@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { qrCheckIn } from '../utils/apiService';
 import jsQR from 'jsqr';
 import '../styles/ScanQr.css';
 
 const ScanQr = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  
+  // Get host information from navigation state
+  const { hostId, hostName, companyName } = location.state || {};
+  
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -81,6 +86,9 @@ const ScanQr = () => {
         navigate('/checkin', {
           state: {
             fromQRScan: true,
+            hostId: hostId,
+            hostName: hostName || result.host_name,
+            companyName: companyName,
             preRegData: {
               id: result.pre_registration_id,
               name: result.visitor_name,

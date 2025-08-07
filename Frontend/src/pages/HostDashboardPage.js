@@ -37,15 +37,15 @@ const HostDashboardPage = () => {
     setLoading(true);
     setError('');
     try {
-      console.log('Fetching visits for hostId:', user.id);
-      console.log('Fetching Name of visits for hostId:', user.name);
+      console.log('Fetching visits for host:', user.name, 'at company:', user.company_name);
 
-      const hostVisitsData = await getVisits({ hostId: user.id });
-      console.log('Visits fetched:', hostVisitsData);
+      // Backend gets host ID from JWT token, no need to pass hostId as parameter
+      const hostVisitsData = await getVisits('host');
+      console.log('Visits fetched successfully:', hostVisitsData?.length || 0, 'visits');
       setVisits(hostVisitsData);
     } catch (err) {
+      console.error('Fetch visits error:', err.message);
       setError('Failed to load your visits. Please try refreshing the page.');
-      console.error('Fetch visits error:', err);
     } finally {
       setLoading(false);
     }
@@ -100,9 +100,18 @@ const HostDashboardPage = () => {
             <h2 className="host-dashboard-title">Host Dashboard</h2>
             <p className="host-dashboard-subtitle">
               Welcome, {user ? user.name : 'Host'}
+              {user && user.company_name && <span className="company-name"> - {user.company_name}</span>}
             </p>
           </div>
-          <Link to="/multiVisitor" state={{ hostName: user ? user.name : '' }} className="add-visitor-btn">
+          <Link 
+            to="/multiVisitor" 
+            state={{ 
+              hostId: user ? user.id : '', 
+              hostName: user ? user.name : '', 
+              companyName: user ? user.company_name : '' 
+            }} 
+            className="add-visitor-btn"
+          >
             + Add Visitor
           </Link>
         </div>

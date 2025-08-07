@@ -7,11 +7,13 @@ import { useNavigate, useLocation } from 'react-router-dom';
 const OCR_API_URL = process.env.REACT_APP_ML_SERVICE_URL || 'https://visitor-management-system-version-2-1.onrender.com/extract-id-number';
 
 const VisitorCheckInPage = () => {
-    // --- Get prefillData and hostName from the route's state ---
+    // --- Get prefillData, hostId, and hostName from the route's state ---
     const { state } = useLocation();
     const prefillData = state?.prefillData || {};
     const preRegData = state?.preRegData || {}; // QR scan data
+    const initialHostId = state?.hostId || preRegData.hostId || '';
     const initialHostName = state?.hostName || preRegData.hostName || '';
+    const companyName = state?.companyName || '';
     const fromQRScan = state?.fromQRScan || false;
     
     // --- Initialize form state with pre-filled data, including new optional fields ---
@@ -24,7 +26,8 @@ const VisitorCheckInPage = () => {
         companyTel: prefillData.companyTel || '',
         website: prefillData.website || '',
         address: prefillData.address || '',
-        hostName: initialHostName,
+        hostId: initialHostId,  // Use hostId instead of hostName
+        hostName: initialHostName, // Keep hostName for display
         reason: preRegData.reason || '', // Pre-fill reason from QR scan
         itemsCarried: '',
         photo: null,
@@ -120,9 +123,14 @@ const VisitorCheckInPage = () => {
                     const hostsData = await getHosts();
                     setHosts(hostsData);
                     
-                    // If user is a host and no initial host name is provided, set it to their own name
-                    if (loggedInUser.role === 'host' && !initialHostName && hostsData.length > 0) {
-                        setFormData(prev => ({ ...prev, hostName: hostsData[0].name }));
+                    // If user is a host and no initial host ID is provided, set it to their own details
+                    if (loggedInUser.role === 'host' && !initialHostId && hostsData.length > 0) {
+                        const currentHost = hostsData.find(host => host.id == loggedInUser.id) || hostsData[0];
+                        setFormData(prev => ({ 
+                            ...prev, 
+                            hostId: currentHost.id,
+                            hostName: currentHost.name 
+                        }));
                     }
                 }
             } catch (err) {
@@ -132,7 +140,7 @@ const VisitorCheckInPage = () => {
         };
         
         fetchUserData();
-    }, [initialHostName]);
+    }, [initialHostId, initialHostName]);
 
     // The rest of your functions (extractIdNumber, camera controls, etc.) remain the same.
     const extractIdNumberFromImage = async (imageDataUrl) => {
@@ -308,7 +316,17 @@ const VisitorCheckInPage = () => {
             };
             reader.readAsDataURL(files[0]);
         } else {
-            setFormData(prev => ({ ...prev, [name]: value }));
+            // Special handling for hostId selection
+            if (name === 'hostId') {
+                const selectedHost = hosts.find(host => host.id == value);
+                setFormData(prev => ({ 
+                    ...prev, 
+                    hostId: value,
+                    hostName: selectedHost ? selectedHost.name : ''
+                }));
+            } else {
+                setFormData(prev => ({ ...prev, [name]: value }));
+            }
         }
     };
 
@@ -365,8 +383,8 @@ const VisitorCheckInPage = () => {
         setMessage('');
         setError('');
         
-        const { name, email, hostName, reason, idCardNumber, idCardType } = formData;
-        if (!name || !email || !hostName || !reason || !idCardNumber || !idCardType) {
+        const { name, email, hostId, hostName, reason, idCardNumber, idCardType } = formData;
+        if (!name || !email || !hostId || !reason || !idCardNumber || !idCardType) {
             setError('Please fill in all required fields.');
             return;
         }
@@ -566,21 +584,21 @@ const VisitorCheckInPage = () => {
                             <div className="form-field">
                                 <label>
                                     Host Name <span className="required-indicator">*</span>
-                                    {/* {fromQRScan && formData.hostName && (
-                                        <span className="qr-filled-indicator"> (Auto-filled from QR)</span>
-                                    )} */}
+                                    {companyName && <span className="company-context"> (for {companyName})</span>}
                                 </label>
                                 {userRole === 'admin' ? (
                                     <select 
-                                        name="hostName" 
-                                        value={formData.hostName} 
+                                        name="hostId" 
+                                        value={formData.hostId} 
                                         onChange={handleChange} 
                                         className={fromQRScan && formData.hostName ? "qr-auto-filled" : ""}
                                         required
                                     >
                                         <option value="" disabled>-- Select a Host --</option>
                                         {hosts.map(host => (
-                                            <option key={host.id} value={host.name}>{host.name}</option>
+                                            <option key={host.id} value={host.id}>
+                                                {host.name} {host.company_name && `- ${host.company_name}`}
+                                            </option>
                                         ))}
                                     </select>
                                 ) : (
