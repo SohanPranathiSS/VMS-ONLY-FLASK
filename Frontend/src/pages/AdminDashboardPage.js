@@ -127,6 +127,20 @@ const AdminDashboardPage = () => {
     blacklistedIncidents: 0,
     overstayIncidents: 0
   });
+  
+  // Add state to persist security insights statistics
+  const [securityStats, setSecurityStats] = useState({
+    blacklistedAttempts: [],
+    overstays: [],
+    incompleteCheckouts: [],
+    afterHoursVisits: [],
+    frequentVisitors: [],
+    noShows: [],
+    securityScore: 100,
+    totalIncidents: 0,
+    riskLevel: 'Low'
+  });
+  
   const [reportData, setReportData] = useState(null);
   const [reportDateRange, setReportDateRange] = useState({
     startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -293,6 +307,15 @@ const AdminDashboardPage = () => {
       const stats = calculateOverviewStats();
       setOverviewStats(stats);
       console.log('📊 Overview stats updated:', stats);
+    }
+  }, [filteredVisits]);
+
+  // Update security stats when filtered visits change
+  useEffect(() => {
+    if (filteredVisits.length > 0) {
+      const securityInsights = calculateSecurityInsights();
+      setSecurityStats(securityInsights);
+      console.log('🔒 Security stats updated:', securityInsights);
     }
   }, [filteredVisits]);
 
@@ -1997,8 +2020,8 @@ const formatDuration = (minutes) => {
     try {
       setShowOverstayModal(true);
       
-      // Calculate overstay visitors from current filteredVisits
-      const security = calculateSecurityInsights();
+      // Calculate overstay visitors from current securityStats
+      const security = securityStats;
       console.log('Overstay visitors for modal:', security.overstays);
       setOverstayVisitors(security.overstays);
     } catch (error) {
@@ -2012,8 +2035,8 @@ const formatDuration = (minutes) => {
     try {
       setShowIncompleteCheckoutsModal(true);
       
-      // Calculate incomplete checkouts from current filteredVisits
-      const security = calculateSecurityInsights();
+      // Calculate incomplete checkouts from current securityStats
+      const security = securityStats;
       console.log('Incomplete checkout visitors for modal:', security.incompleteCheckouts);
       setIncompleteCheckoutVisitors(security.incompleteCheckouts);
     } catch (error) {
@@ -7495,8 +7518,8 @@ const formatDuration = (minutes) => {
                             >
                               <option value="host">Host</option>
                               <option value="admin">Admin</option>
-                              <option value="security">Security</option>
-                              <option value="receptionist">Receptionist</option>
+                              {/* <option value="security">Security</option>
+                              <option value="receptionist">Receptionist</option> */}
                             </select>
                           </div>
                           <div className="form-group">
