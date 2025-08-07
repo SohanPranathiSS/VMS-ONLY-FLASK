@@ -87,20 +87,25 @@ export const registerCompany = (companyData) => {
 
 
 /**
- * This function is for the Admin Dashboard to create hosts from a single 'name' field.
+ * Create a new user/host.
+ * This function is for the Admin Dashboard to create hosts with comprehensive user data.
  * It correctly structures the name into firstName and lastName for the backend.
  * Now requires authentication as only admins can create users under their company.
- * @param {object} userData - Must contain name, email, and password.
+ * @param {object} userData - Must contain name, email, password, role, mobile_number, department, designation.
  */
 export const createUser = (userData) => {
   const [firstName, ...lastNameParts] = userData.name.split(' ');
-  const lastName = lastNameParts.join(' ');
+  const lastName = lastNameParts.join(' ') || '';
 
   const registrationData = {
     firstName,
     lastName,
     email: userData.email,
     password: userData.password,
+    role: userData.role,
+    mobile_number: userData.mobile_number,
+    department: userData.department,
+    designation: userData.designation,
   };
 
   return request('/register', {
@@ -130,9 +135,15 @@ export const getHosts = () => {
  * - 'host' role fetches from /host-visits.
  * @param {string} role - The role of the logged-in user ('admin' or 'host').
  * @param {object} filters - Optional filters for the query (e.g., { hostName: 'John' }).
+ * @param {number} page - Page number for pagination (default: 1).
+ * @param {number} limit - Number of items per page (default: 10).
  */
-export const getVisits = (role, filters = {}) => {
-  const params = new URLSearchParams(filters);
+export const getVisits = (role, filters = {}, page = 1, limit = 10) => {
+  const params = new URLSearchParams({
+    ...filters,
+    page: page.toString(),
+    limit: limit.toString()
+  });
   
   // Choose the correct endpoint based on the user's role
   const endpoint = role === 'admin' ? '/visits' : '/host-visits';
@@ -276,7 +287,7 @@ export const generateVisitorBadge = (visitId) => {
  * Generate badge for pre-registered visitor
  */
 export const generatePreRegistrationBadge = (preRegId) => {
-  return request(`/pre-registrations/${preRegId}/badge`);
+  return request(`/pre-registrations/${preRegId}/badge?includePhoto=false`);
 };
 
 /**

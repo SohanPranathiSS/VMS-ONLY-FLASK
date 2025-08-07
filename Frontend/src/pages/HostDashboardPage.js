@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getVisits, checkOutVisit } from '../utils/apiService';
 import HostFooter from '../components/HostFooter';
+import Pagination from '../components/Pagination';
 import '../styles/HostDashboardPage.css';
 
 const HostDashboardPage = () => {
@@ -9,6 +10,12 @@ const HostDashboardPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalVisits, setTotalVisits] = useState(0);
+  const [itemsPerPage, setItemsPerPage] = useState(10); // Number of visits per page
 
   console.log('Rendering HostDashboardPage');
 
@@ -28,7 +35,7 @@ const HostDashboardPage = () => {
     }
   }, []);
 
-  const fetchHostVisits = useCallback(async () => {
+  const fetchHostVisits = useCallback(async (page = 1) => {
     if (!user) {
       console.log('No user, skipping fetchHostVisits');
       return;
@@ -37,19 +44,44 @@ const HostDashboardPage = () => {
     setLoading(true);
     setError('');
     try {
-      console.log('Fetching visits for hostId:', user.id);
-      console.log('Fetching Name of visits for hostId:', user.name);
+      console.log('Fetching visits for host:', user.name, 'at company:', user.company_name, 'page:', page, 'limit:', itemsPerPage);
 
-      const hostVisitsData = await getVisits({ hostId: user.id });
-      console.log('Visits fetched:', hostVisitsData);
-      setVisits(hostVisitsData);
+      // Backend gets host ID from JWT token, no need to pass hostId as parameter
+      const response = await getVisits('host', {}, page, itemsPerPage);
+      console.log('Visits response:', response);
+      
+      // Handle different response formats
+      if (response.visits) {
+        // Paginated response
+        setVisits(response.visits);
+        setTotalPages(response.totalPages || 1);
+        setTotalVisits(response.totalVisits || 0);
+        setCurrentPage(response.currentPage || page);
+        console.log('Paginated visits fetched:', response.visits?.length || 0, 'visits, page', page, 'of', response.totalPages);
+      } else if (Array.isArray(response)) {
+        // Non-paginated response (fallback)
+        setVisits(response);
+        setTotalPages(1);
+        setTotalVisits(response.length);
+        setCurrentPage(1);
+        console.log('Non-paginated visits fetched:', response?.length || 0, 'visits');
+      } else {
+        setVisits([]);
+        setTotalPages(1);
+        setTotalVisits(0);
+        setCurrentPage(1);
+      }
     } catch (err) {
+      console.error('Fetch visits error:', err.message);
       setError('Failed to load your visits. Please try refreshing the page.');
-      console.error('Fetch visits error:', err);
+      setVisits([]);
+      setTotalPages(1);
+      setTotalVisits(0);
+      setCurrentPage(1);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, itemsPerPage]);
 
   useEffect(() => {
     fetchHostVisits();
@@ -59,11 +91,26 @@ const HostDashboardPage = () => {
     try {
       console.log('Checking out visit:', visitId);
       await checkOutVisit(visitId);
-      fetchHostVisits();
+      fetchHostVisits(currentPage); // Refresh current page
     } catch (err) {
       setError(`Failed to check out visitor: ${err.message}`);
       console.error('Checkout error:', err);
     }
+  };
+
+  // Pagination handlers
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+      fetchHostVisits(newPage);
+    }
+  };
+
+  // Handle items per page change
+  const handleItemsPerPageChange = (newLimit) => {
+    setItemsPerPage(newLimit);
+    setCurrentPage(1); // Reset to first page
+    fetchHostVisits(1);
   };
 
   const handleLogout = () => {
@@ -100,17 +147,34 @@ const HostDashboardPage = () => {
             <h2 className="host-dashboard-title">Host Dashboard</h2>
             <p className="host-dashboard-subtitle">
               Welcome, {user ? user.name : 'Host'}
+              {user && user.company_name && <span className="company-name"> - {user.company_name}</span>}
             </p>
           </div>
-          <Link to="/multiVisitor" state={{ hostName: user ? user.name : '' }} className="add-visitor-btn">
+          <Link 
+            to="/multiVisitor" 
+            state={{ 
+              hostId: user ? user.id : '', 
+              hostName: user ? user.name : '', 
+              companyName: user ? user.company_name : '' 
+            }} 
+            className="add-visitor-btn"
+          >
             + Add Visitor
           </Link>
         </div>
         {error && <p className="host-dashboard-error">{error}</p>}
         {loading ? (
-          <p>Loading your visitors...</p>
+          <div className="loading-container">
+            <p>Loading your visitors...</p>
+          </div>
         ) : (
           <div className="host-dashboard-table-card">
+            <div className="table-header">
+              <h3>Your Visitors</h3>
+              {totalVisits > 0 && (
+                <span className="total-count">Total: {totalVisits} visits</span>
+              )}
+            </div>
             <table className="host-dashboard-table-modern">
               <thead>
                 <tr>
@@ -128,7 +192,9 @@ const HostDashboardPage = () => {
               <tbody>
                 {visits.length === 0 ? (
                   <tr>
-                    <td colSpan="9">You have no visitors currently.</td>
+                    <td colSpan="9" className="no-data">
+                      {totalVisits === 0 ? 'You have no visitors currently.' : 'No visitors found on this page.'}
+                    </td>
                   </tr>
                 ) : (
                   visits.map((visit) => (
@@ -182,6 +248,18 @@ const HostDashboardPage = () => {
                 )}
               </tbody>
             </table>
+            
+            {/* Pagination Component */}
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalVisits}
+              itemsPerPage={itemsPerPage}
+              onPageChange={handlePageChange}
+              onItemsPerPageChange={handleItemsPerPageChange}
+              showItemsPerPage={true}
+              itemsPerPageOptions={[5, 10, 20, 50]}
+            />
           </div>
         )}
       </div>

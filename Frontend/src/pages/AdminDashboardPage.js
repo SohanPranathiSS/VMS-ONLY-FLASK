@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { 
@@ -68,6 +68,10 @@ const AdminDashboardPage = () => {
     name: '',
     email: '',
     password: '',
+    role: 'Host', // Default to Host
+    mobile_number: '',
+    department: '',
+    designation: '',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -78,12 +82,29 @@ const AdminDashboardPage = () => {
   const [companyInfo, setCompanyInfo] = useState(null);
   const [selectedVisitor, setSelectedVisitor] = useState(null);
   const [showVisitorDetails, setShowVisitorDetails] = useState(false);
-  const [showBlacklistedModal, setShowBlacklistedModal] = useState(false);
+
+  // Master data states for consistency across all sections
+  const [masterVisitsData, setMasterVisitsData] = useState([]);
+  const [masterPreRegistrationsData, setMasterPreRegistrationsData] = useState([]);
+  const [masterBlacklistedData, setMasterBlacklistedData] = useState([]);
+  const [dataLastFetched, setDataLastFetched] = useState(null);
+  const [isInitialDataLoaded, setIsInitialDataLoaded] = useState(false);
+
   const [blacklistedVisitors, setBlacklistedVisitors] = useState([]);
   const [showOverstayModal, setShowOverstayModal] = useState(false);
   const [overstayVisitors, setOverstayVisitors] = useState([]);
   const [showIncompleteCheckoutsModal, setShowIncompleteCheckoutsModal] = useState(false);
   const [incompleteCheckoutVisitors, setIncompleteCheckoutVisitors] = useState([]);
+  const [showTotalVisitorsModal, setShowTotalVisitorsModal] = useState(false);
+  const [showCheckedInVisitorsModal, setShowCheckedInVisitorsModal] = useState(false);
+  const [showPendingVisitorsModal, setShowPendingVisitorsModal] = useState(false);
+  const [showExpectedVisitorsModal, setShowExpectedVisitorsModal] = useState(false);
+  const [showCheckedOutVisitorsModal, setShowCheckedOutVisitorsModal] = useState(false);
+  const [showBlacklistedVisitorsModal, setShowBlacklistedVisitorsModal] = useState(false);
+  const [showSecurityIncidentsModal, setShowSecurityIncidentsModal] = useState(false);
+  const [securityIncidentsData, setSecurityIncidentsData] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [visitorsPerPage] = useState(10);
   const [activeVisitorTab, setActiveVisitorTab] = useState('all');
   const [expandedMenus, setExpandedMenus] = useState({
     dashboard: true,
@@ -127,6 +148,20 @@ const AdminDashboardPage = () => {
     blacklistedIncidents: 0,
     overstayIncidents: 0
   });
+  
+  // Add state to persist security insights statistics
+  const [securityStats, setSecurityStats] = useState({
+    blacklistedAttempts: [],
+    overstays: [],
+    incompleteCheckouts: [],
+    afterHoursVisits: [],
+    frequentVisitors: [],
+    noShows: [],
+    securityScore: 100,
+    totalIncidents: 0,
+    riskLevel: 'Low'
+  });
+  
   const [reportData, setReportData] = useState(null);
   const [reportDateRange, setReportDateRange] = useState({
     startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -144,9 +179,16 @@ const AdminDashboardPage = () => {
     startDate: '',
     endDate: '',
     visitorEmail: '',
-    hostName: '',
-    limit: 100
+    hostName: ''
   });
+  
+  // Separate pagination state for visitor history
+  const [historyCurrentPage, setHistoryCurrentPage] = useState(1);
+  const [historyItemsPerPage, setHistoryItemsPerPage] = useState(5); // Configurable items per page for history
+  
+  // Separate pagination state for visitor logs
+  const [visitorLogsCurrentPage, setVisitorLogsCurrentPage] = useState(1);
+  const [visitorLogsItemsPerPage, setVisitorLogsItemsPerPage] = useState(5); // Configurable items per page for visitor logs
   const [preRegForm, setPreRegForm] = useState({
     visitorName: '',
     visitorEmail: '',
@@ -251,11 +293,22 @@ const AdminDashboardPage = () => {
 
     const fetchAllUsers = async () => {
       try {
+        console.log('🔄 Fetching users data from API...');
         const usersData = await getUsers();
+        console.log('✅ Users data received:', usersData);
+        console.log('📊 Number of users:', usersData?.length || 0);
+        
+        // Log detailed structure of first user if available
+        if (usersData && usersData.length > 0) {
+          console.log('👤 Sample user structure:', usersData[0]);
+          console.log('🔍 Available fields:', Object.keys(usersData[0]));
+        }
+        
         setUsers(usersData);
+        console.log('✅ Users state updated successfully');
       } catch (err) {
+        console.error('❌ Error fetching users:', err);
         setError('Failed to load users. Please try again later.');
-        console.error(err);
       }
     };
     fetchAllUsers();
@@ -287,16 +340,454 @@ const AdminDashboardPage = () => {
     setFilteredVisits(filtered);
   }, [visits, filters, activeVisitorTab]);
 
-  // Update overview stats when filtered visits change
+  // Calculate statistics for current period using master data for consistency
+  const calculateOverviewStats = useCallback(() => {
+    if (!isInitialDataLoaded) return {
+      totalVisitors: 0,
+      uniqueVisitors: 0,
+      avgDuration: 0,
+      peakHour: 'N/A',
+      noShows: 0,
+      securityIncidents: 0,
+      blacklistedIncidents: 0,
+      overstayIncidents: 0
+    };
+
+    // Use complete master data instead of filteredVisits for consistency across all sections
+    const allMasterData = [...masterVisitsData, ...masterPreRegistrationsData];
+    
+    // 1. Total Visitors: Only count visitors who actually checked in
+    const checkedInVisitors = allMasterData.filter(visit => visit.check_in_time);
+    const totalVisitors = checkedInVisitors.length;
+    
+    // Calculate unique visitors by email (only from checked-in visitors)
+    const uniqueEmails = new Set(checkedInVisitors.map(visit => 
+      visit.visitor_email || visit.visitorEmail || 'unknown'
+    ).filter(email => email !== 'unknown'));
+    const uniqueVisitors = uniqueEmails.size;
+    
+    // Calculate average duration for completed visits
+    const completedVisits = allMasterData.filter(visit => 
+      visit.check_in_time && visit.check_out_time
+    );
+    
+    let avgDuration = 0;
+    if (completedVisits.length > 0) {
+      const totalDuration = completedVisits.reduce((sum, visit) => {
+        const checkIn = new Date(visit.check_in_time);
+        const checkOut = new Date(visit.check_out_time);
+        return sum + (checkOut - checkIn) / (1000 * 60); // Convert to minutes
+      }, 0);
+      avgDuration = Math.round(totalDuration / completedVisits.length);
+    }
+    
+    // Calculate peak hour (only from checked-in visitors)
+    const hourCounts = {};
+    checkedInVisitors.forEach(visit => {
+      const hour = new Date(visit.check_in_time).getHours();
+      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+    });
+    
+    const peakHour = Object.entries(hourCounts).reduce((peak, [hour, count]) => 
+      count > (hourCounts[peak] || 0) ? hour : peak, '0'
+    );
+    
+    const peakHourFormatted = peakHour !== '0' ? 
+      `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
+    
+    // Calculate no-shows (pre-registrations that were never checked in)
+    const noShows = allMasterData.filter(visit => 
+      visit.isPreRegistration && !visit.check_in_time && 
+      new Date(visit.visit_date) < new Date()
+    ).length;
+    
+    // 2. Security Incidents: Include blacklisted visitors AND overstay incidents
+    const now = new Date();
+    
+    // Blacklisted visitors
+    const blacklistedIncidents = masterBlacklistedData.length;
+    
+    // Overstay incidents (visits longer than 8 hours)
+    const overstayIncidents = allMasterData.filter(visit => {
+      if (!visit.check_in_time) return false;
+      const checkInTime = new Date(visit.check_in_time);
+      const endTime = visit.check_out_time ? new Date(visit.check_out_time) : now;
+      const hoursStayed = (endTime - checkInTime) / (1000 * 60 * 60);
+      return hoursStayed > 8;
+    }).length;
+    
+    // Total security incidents
+    const securityIncidents = blacklistedIncidents + overstayIncidents;
+
+    return {
+      totalVisitors,
+      uniqueVisitors,
+      avgDuration,
+      peakHour: peakHourFormatted,
+      noShows,
+      securityIncidents,
+      blacklistedIncidents,
+      overstayIncidents
+    };
+  }, [isInitialDataLoaded, masterVisitsData, masterPreRegistrationsData, masterBlacklistedData]);
+
+  // Enhanced Security analytics calculations using master data for consistency
+  const calculateSecurityInsights = useCallback(() => {
+    if (!isInitialDataLoaded) return {
+      blacklistedAttempts: [],
+      overstays: [],
+      incompleteCheckouts: [],
+      afterHoursVisits: [],
+      frequentVisitors: [],
+      noShows: [],
+      securityScore: 100,
+      totalIncidents: 0,
+      riskLevel: 'Low'
+    };
+
+    const now = new Date();
+    
+    // Use master data instead of filteredVisits for consistency
+    const allMasterData = [...masterVisitsData, ...masterPreRegistrationsData];
+    
+    // Blacklisted visitor attempts
+    const blacklistedAttempts = masterBlacklistedData;
+    
+    // Overstay incidents (visits longer than 8 hours)
+    const overstays = allMasterData.filter(v => {
+      if (!v.check_in_time) return false;
+      const checkInTime = new Date(v.check_in_time);
+      const endTime = v.check_out_time ? new Date(v.check_out_time) : now;
+      const hoursStayed = (endTime - checkInTime) / (1000 * 60 * 60);
+      return hoursStayed > 8;
+    });
+    
+    // Incomplete checkouts (24+ hours without checkout)
+    const incompleteCheckouts = allMasterData.filter(v => 
+      v.check_in_time && 
+      (!v.check_out_time || v.check_out_time.trim() === '') && 
+      (now - new Date(v.check_in_time)) > 24 * 60 * 60 * 1000
+    );
+    
+    // After-hours visits (before 8 AM or after 6 PM)
+    const afterHoursVisits = allMasterData.filter(v => {
+      if (!v.check_in_time) return false;
+      const hour = new Date(v.check_in_time).getHours();
+      return hour < 8 || hour > 18;
+    });
+    
+    // Frequent visitors (5+ visits in the period)
+    const visitorCounts = {};
+    allMasterData.forEach(visit => {
+      const email = visit.visitor_email || visit.visitorEmail || 'unknown';
+      visitorCounts[email] = (visitorCounts[email] || 0) + 1;
+    });
+    const frequentVisitors = Object.entries(visitorCounts)
+      .filter(([email, count]) => count >= 5 && email !== 'unknown')
+      .sort((a, b) => b[1] - a[1]);
+    
+    // No-shows (scheduled but didn't arrive)
+    const noShows = allMasterData.filter(visit => 
+      visit.isPreRegistration && !visit.check_in_time && 
+      new Date(visit.visit_date) < new Date()
+    );
+    
+    // Security score calculation (0-100)
+    let securityScore = 100;
+    securityScore -= blacklistedAttempts.length * 10; // -10 per blacklisted attempt
+    securityScore -= overstays.length * 5; // -5 per overstay
+    securityScore -= incompleteCheckouts.length * 2; // -2 per incomplete checkout
+    securityScore -= afterHoursVisits.length * 1; // -1 per after-hours visit
+    securityScore = Math.max(0, securityScore); // Don't go below 0
+    
+    return {
+      blacklistedAttempts,
+      overstays,
+      incompleteCheckouts,
+      afterHoursVisits,
+      frequentVisitors,
+      noShows,
+      securityScore,
+      totalIncidents: blacklistedAttempts.length + overstays.length + incompleteCheckouts.length,
+      riskLevel: securityScore > 80 ? 'Low' : securityScore > 60 ? 'Medium' : 'High'
+    };
+  }, [isInitialDataLoaded, masterVisitsData, masterPreRegistrationsData, masterBlacklistedData]);
+
+  // Calculate previous period stats for comparison using master data for consistency
+  const calculatePreviousStats = useCallback(() => {
+    if (!isInitialDataLoaded) return {
+      totalVisitors: 0,
+      avgDuration: 0,
+      securityIncidents: 0
+    };
+
+    const currentDate = new Date();
+    const thirtyDaysAgo = new Date(currentDate.getTime() - (30 * 24 * 60 * 60 * 1000));
+    const sixtyDaysAgo = new Date(currentDate.getTime() - (60 * 24 * 60 * 60 * 1000));
+    
+    // Use master data instead of filteredVisits for consistency
+    const allMasterData = [...masterVisitsData, ...masterPreRegistrationsData];
+    const previousPeriodVisits = allMasterData.filter(visit => {
+      const visitDate = new Date(visit.visit_date || visit.check_in_time);
+      return visitDate >= sixtyDaysAgo && visitDate < thirtyDaysAgo;
+    });
+    
+    const totalVisitors = previousPeriodVisits.length;
+    
+    const completedVisits = previousPeriodVisits.filter(visit => 
+      visit.check_in_time && visit.check_out_time
+    );
+    
+    let avgDuration = 0;
+    if (completedVisits.length > 0) {
+      const totalDuration = completedVisits.reduce((sum, visit) => {
+        const checkIn = new Date(visit.check_in_time);
+        const checkOut = new Date(visit.check_out_time);
+        return sum + (checkOut - checkIn) / (1000 * 60);
+      }, 0);
+      avgDuration = Math.round(totalDuration / completedVisits.length);
+    }
+    
+    // Count security incidents from previous period using master data
+    const securityIncidents = masterBlacklistedData.filter(visitor => {
+      const blacklistDate = new Date(visitor.blacklisted_at || visitor.created_at || visitor.visit_date);
+      return blacklistDate >= sixtyDaysAgo && blacklistDate < thirtyDaysAgo;
+    }).length;
+    
+    return {
+      totalVisitors,
+      avgDuration,
+      securityIncidents
+    };
+  }, [isInitialDataLoaded, masterVisitsData, masterPreRegistrationsData, masterBlacklistedData]);
+
+  // Enhanced Host Performance calculations using master data for consistency
+  const calculateHostPerformance = useCallback(() => {
+    const hostStats = {};
+    
+    // Use master data instead of filteredVisits for consistency
+    const allMasterData = [...masterVisitsData, ...masterPreRegistrationsData];
+    
+    allMasterData.forEach(visit => {
+      const hostName = visit.person_to_meet || visit.personToMeet || visit.host || visit.host_name || 'Unknown';
+      
+      // Count visits per host
+      if (!hostStats[hostName]) {
+        hostStats[hostName] = {
+          host_name: hostName,
+          visits: 0,
+          totalDuration: 0,
+          completedVisits: 0,
+          noShows: 0,
+          averageDuration: 0,
+          lastVisit: null,
+          visitReasons: {},
+          peakHours: {}
+        };
+      }
+      
+      hostStats[hostName].visits++;
+      
+      // Calculate duration for completed visits
+      if (visit.check_in_time && visit.check_out_time) {
+        const checkIn = new Date(visit.check_in_time);
+        const checkOut = new Date(visit.check_out_time);
+        const duration = (checkOut - checkIn) / (1000 * 60); // minutes
+        hostStats[hostName].totalDuration += duration;
+        hostStats[hostName].completedVisits++;
+        
+        // Track peak hours for this host
+        const hour = checkIn.getHours();
+        hostStats[hostName].peakHours[hour] = (hostStats[hostName].peakHours[hour] || 0) + 1;
+      }
+      
+      // Track no-shows
+      if (visit.isPreRegistration && !visit.check_in_time && 
+          new Date(visit.visit_date) < new Date()) {
+        hostStats[hostName].noShows++;
+      }
+      
+      // Track visit reasons
+      const reason = visit.visit_reason || visit.visitReason || visit.purpose || 'Unknown';
+      hostStats[hostName].visitReasons[reason] = (hostStats[hostName].visitReasons[reason] || 0) + 1;
+      
+      // Track last visit
+      const visitDate = new Date(visit.check_in_time || visit.visit_date);
+      if (!hostStats[hostName].lastVisit || visitDate > hostStats[hostName].lastVisit) {
+        hostStats[hostName].lastVisit = visitDate;
+      }
+    });
+    
+    // Calculate average duration for each host
+    Object.values(hostStats).forEach(host => {
+      if (host.completedVisits > 0) {
+        host.averageDuration = Math.round(host.totalDuration / host.completedVisits);
+      }
+      
+      // Find peak hour for this host
+      const peakHour = Object.entries(host.peakHours).reduce((peak, [hour, count]) => 
+        count > (host.peakHours[peak] || 0) ? hour : peak, '0'
+      );
+      host.peakHour = peakHour !== '0' ? 
+        `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
+      
+      // Find most common visit reason
+      host.topReason = Object.entries(host.visitReasons).reduce((top, [reason, count]) => 
+        count > (host.visitReasons[top] || 0) ? reason : top, 'N/A'
+      );
+    });
+    
+    // Sort by number of visits
+    const sortedHosts = Object.values(hostStats).sort((a, b) => b.visits - a.visits);
+    
+    return sortedHosts;
+  }, [masterVisitsData, masterPreRegistrationsData]);
+
+  // Update overview stats when master data changes
   useEffect(() => {
-    if (filteredVisits.length > 0) {
+    if (isInitialDataLoaded) {
       const stats = calculateOverviewStats();
       setOverviewStats(stats);
-      console.log('📊 Overview stats updated:', stats);
+      console.log('📊 Overview stats updated from master data:', stats);
+      console.log('🔍 Data consistency check:', {
+        masterVisits: masterVisitsData.length,
+        masterPreRegs: masterPreRegistrationsData.length,
+        masterBlacklisted: masterBlacklistedData.length,
+        calculatedTotal: stats.totalVisitors,
+        calculatedSecurity: stats.securityIncidents
+      });
     }
-  }, [filteredVisits]);
+  }, [isInitialDataLoaded, calculateOverviewStats]);
 
-  // Filter visits by category
+  // Update security stats when master data changes
+  useEffect(() => {
+    if (isInitialDataLoaded) {
+      const securityInsights = calculateSecurityInsights();
+      setSecurityStats(securityInsights);
+      console.log('🔒 Security stats updated from master data:', securityInsights);
+    }
+  }, [isInitialDataLoaded, calculateSecurityInsights]);
+
+  // Centralized data fetching function to maintain consistency across all sections
+  const fetchMasterData = useCallback(async (forceRefresh = false) => {
+    if (!userRole) {
+      console.log('❌ No userRole available, skipping master data fetch');
+      return;
+    }
+
+    // Check if we need to refresh data (only fetch if forced or data is older than 30 seconds)
+    const now = new Date();
+    if (!forceRefresh && dataLastFetched && (now - dataLastFetched) < 30000 && isInitialDataLoaded) {
+      console.log('📋 Using cached data, last fetched:', dataLastFetched);
+      return;
+    }
+    
+    console.log('🔄 Fetching master data for consistency...', { userRole, forceRefresh });
+    setLoading(true);
+    setError('');
+    
+    try {
+      const apiFilters = {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        visitorName: filters.visitorName,
+        visitorId: filters.visitorId,
+        hostName: filters.hostName,
+        limit: 1000 // Increased limit for comprehensive data
+      };
+      
+      console.log('📊 Master API Filters:', apiFilters);
+      
+      // Fetch all data sources in parallel for consistency
+      const [
+        allVisitsData,
+        allPreRegistrationsData,
+        allBlacklistedData
+      ] = await Promise.all([
+        getVisits(userRole, Object.fromEntries(Object.entries(filters).filter(([_, v]) => v))).catch(err => {
+          console.warn('⚠️ Failed to fetch visits:', err);
+          return [];
+        }),
+        getPreRegistrations(apiFilters).catch(err => {
+          console.warn('⚠️ Failed to fetch pre-registrations:', err);
+          return [];
+        }),
+        getBlacklistedVisitors(apiFilters).catch(err => {
+          console.warn('⚠️ Failed to fetch blacklisted visitors:', err);
+          return [];
+        })
+      ]);
+
+      console.log('✅ Master data fetched:', {
+        visits: allVisitsData.length,
+        preRegistrations: allPreRegistrationsData.length,
+        blacklisted: allBlacklistedData.length
+      });
+
+      // Transform and standardize all data for consistency
+      const standardizedVisits = allVisitsData.map(visit => ({
+        ...visit,
+        // Ensure consistent field mapping
+        visitor_name: visit.visitor_name || visit.visitorName || visit.person_name || visit.name,
+        visitor_email: visit.visitor_email || visit.visitorEmail || visit.email,
+        visitor_phone: visit.visitor_phone || visit.visitorPhone || visit.phone,
+        host_name: visit.host_name || visit.hostName || visit.person_to_meet,
+        visitor_company: visit.visitor_company || visit.company || visit.visitorCompany,
+        purpose: visit.purpose || visit.reason || visit.visitReason,
+        source: 'regular_visit'
+      }));
+
+      const standardizedPreRegs = allPreRegistrationsData.map(preReg => ({
+        ...preReg,
+        // Map pre-registration fields to standard visit structure
+        visitor_name: preReg.visitor_name || preReg.visitorName,
+        visitor_email: preReg.visitor_email || preReg.visitorEmail,
+        visitor_phone: preReg.visitor_phone || preReg.visitorPhone,
+        host_name: preReg.host_name || preReg.hostName,
+        visitor_company: preReg.visitor_company || preReg.company,
+        purpose: preReg.purpose || preReg.reason,
+        visitor_id: preReg.id || preReg.visitor_id,
+        check_in_time: preReg.status === 'checked_in' ? preReg.checked_in_at : null,
+        check_out_time: preReg.status === 'checked_out' ? preReg.checked_out_at : null,
+        isPreRegistration: true,
+        source: 'pre_registration'
+      }));
+
+      const standardizedBlacklisted = allBlacklistedData.map(visitor => ({
+        ...visitor,
+        // Standardize blacklisted visitor fields
+        visitor_name: visitor.person_name || visitor.visitor_name || visitor.name || visitor.visitorName,
+        visitor_email: visitor.email || visitor.visitor_email || visitor.visitorEmail,
+        visitor_phone: visitor.phone || visitor.visitor_phone || visitor.visitorPhone,
+        host_name: visitor.person_to_meet || visitor.host_name || visitor.hostName,
+        visitor_company: visitor.visitor_company || visitor.company,
+        purpose: visitor.visit_reason || visitor.purpose || visitor.reason,
+        visitor_id: visitor.visitor_id || visitor.id,
+        blacklist_reason: visitor.reason_to_blacklist || visitor.blacklist_reason || visitor.reason_for_blacklist,
+        visitorPhoto: visitor.picture || visitor.photo || visitor.visitorPhoto,
+        isBlacklisted: true,
+        is_blacklisted: true,
+        source: 'blacklisted'
+      }));
+
+      // Store master data
+      setMasterVisitsData(standardizedVisits);
+      setMasterPreRegistrationsData(standardizedPreRegs);
+      setMasterBlacklistedData(standardizedBlacklisted);
+      setDataLastFetched(now);
+      setIsInitialDataLoaded(true);
+
+      // Allow useEffect to handle view updates to prevent circular dependencies
+
+    } catch (err) {
+      console.error('❌ Error in fetchMasterData:', err);
+      setError('Failed to load visitor data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, userRole, dataLastFetched, isInitialDataLoaded]);
+
+  // Filter visits by category - defined before updateCurrentView to avoid initialization errors
   const filterVisitsByCategory = useCallback((visits, category) => {
     const now = new Date();
     switch (category) {
@@ -326,6 +817,88 @@ const AdminDashboardPage = () => {
     }
   }, []);
 
+  // Function to update current view based on active tab using master data
+  const updateCurrentView = useCallback((visitsData, preRegsData, blacklistedData) => {
+    console.log('🎯 Updating current view for tab:', activeVisitorTab);
+    
+    let combinedData = [];
+    let preRegsForView = [];
+
+    switch (activeVisitorTab) {
+      case 'pending':
+        // Combine all data and filter for pending
+        const allPendingData = [...visitsData, ...preRegsData];
+        combinedData = allPendingData.filter(visit => {
+          // Skip blacklisted items
+          if (visit.isBlacklisted || visit.is_blacklisted) return false;
+          
+          // Skip already checked-in items
+          if (visit.check_in_time) return false;
+          
+          // For pre-registrations with pending status
+          if (visit.isPreRegistration && visit.status === 'pending') {
+            const visitDate = new Date(visit.visit_date);
+            const today = new Date().setHours(0, 0, 0, 0);
+            return visitDate <= today;
+          }
+          
+          // For regular visits that are pending (past visits not checked in)
+          if (!visit.isPreRegistration && !visit.check_in_time) {
+            const visitDate = new Date(visit.visit_date);
+            const today = new Date().setHours(0, 0, 0, 0);
+            return visitDate < today;
+          }
+          
+          return false;
+        });
+        preRegsForView = combinedData.filter(item => item.isPreRegistration);
+        break;
+
+      case 'blacklisted':
+        combinedData = blacklistedData;
+        preRegsForView = blacklistedData.filter(item => item.isPreRegistration);
+        break;
+
+      case 'all':
+        combinedData = [...visitsData, ...preRegsData];
+        preRegsForView = preRegsData;
+        break;
+
+      default:
+        // For other tabs, use visits data and apply category filtering
+        combinedData = filterVisitsByCategory([...visitsData, ...preRegsData], activeVisitorTab);
+        preRegsForView = preRegsData;
+        break;
+    }
+
+    console.log('✅ Current view updated:', {
+      tab: activeVisitorTab,
+      totalData: combinedData.length,
+      preRegs: preRegsForView.length
+    });
+
+    setVisits(combinedData);
+    setPreRegistrations(preRegsForView);
+    setBlacklistedVisitors(blacklistedData);
+
+  }, [activeVisitorTab, filterVisitsByCategory]);
+
+  // Update current view when activeVisitorTab changes
+  useEffect(() => {
+    if (isInitialDataLoaded) {
+      console.log('🎯 Updating current view due to tab change:', activeVisitorTab);
+      updateCurrentView(masterVisitsData, masterPreRegistrationsData, masterBlacklistedData);
+    }
+  }, [activeVisitorTab, updateCurrentView, isInitialDataLoaded]);
+
+  // Update current view when master data is initially loaded or substantially changes
+  useEffect(() => {
+    if (isInitialDataLoaded && (masterVisitsData.length > 0 || masterPreRegistrationsData.length > 0 || masterBlacklistedData.length > 0)) {
+      console.log('📋 Master data available, updating current view');
+      updateCurrentView(masterVisitsData, masterPreRegistrationsData, masterBlacklistedData);
+    }
+  }, [isInitialDataLoaded, updateCurrentView]); // Only depend on isInitialDataLoaded to avoid loops
+
 
 // Function to format minutes into "Xh Ymin"
 const formatDuration = (minutes) => {
@@ -340,280 +913,224 @@ const formatDuration = (minutes) => {
 
 
 
-  // Fetch visitor data
-  const fetchVisitorData = useCallback(async () => {
-    if (!userRole) {
-      console.log('❌ No userRole available, skipping data fetch');
+  // Simplified visitor data function that uses master data for consistency
+  const fetchVisitorData = useCallback(async (forceRefresh = false) => {
+    console.log('🎯 fetchVisitorData called, delegating to fetchMasterData');
+    await fetchMasterData(forceRefresh);
+  }, [fetchMasterData]);
+
+  // Initial data load
+  useEffect(() => {
+    console.log('🎯 useEffect for initial data load:', { activeSection, userRole });
+    if ((activeSection === 'visitor-logs' || activeSection === 'dashboard') && userRole && !isInitialDataLoaded) {
+      console.log('🚀 Loading initial master data...');
+      fetchMasterData(true); // Force initial load
+    }
+  }, [activeSection, userRole, isInitialDataLoaded, fetchMasterData]);
+
+  // Refresh data when filters change (but not on initial load)
+  useEffect(() => {
+    // Only refresh if initial data is loaded AND we have meaningful filter changes
+    const hasFilters = filters.startDate || filters.endDate || filters.visitorName || filters.visitorId || filters.hostName;
+    
+    console.log('🔄 Filters changed:', { filters, hasFilters, isInitialDataLoaded });
+    
+    if (isInitialDataLoaded && hasFilters) {
+      console.log('🔄 Refreshing data due to filter changes...');
+      fetchMasterData(true); // Force refresh when filters change
+    }
+  }, [filters.startDate, filters.endDate, filters.visitorName, filters.visitorId, filters.hostName, fetchMasterData, isInitialDataLoaded]);
+
+  // Reset visitor logs pagination when sub-section changes
+  useEffect(() => {
+    setVisitorLogsCurrentPage(1);
+  }, [activeSubSubSection]);
+
+  // Generate comprehensive report data from master data for consistency
+  const generateReportFromMasterData = useCallback(() => {
+    if (!isInitialDataLoaded) return null;
+    
+    console.log('📊 Generating report from master data...');
+    
+    // Combine all master data for analysis
+    const allData = [...masterVisitsData, ...masterPreRegistrationsData];
+    const filteredData = allData.filter(visit => {
+      if (!visit.visit_date && !visit.check_in_time) return false;
+      
+      const visitDate = new Date(visit.visit_date || visit.check_in_time);
+      const startDate = reportDateRange.startDate ? new Date(reportDateRange.startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const endDate = reportDateRange.endDate ? new Date(reportDateRange.endDate) : new Date();
+      
+      return visitDate >= startDate && visitDate <= endDate;
+    });
+    
+    console.log('📊 Filtered data for report:', filteredData.length, 'visits');
+    
+    // Generate overview statistics
+    const overview = {
+      totalVisits: filteredData.length,
+      uniqueVisitors: new Set(filteredData.map(v => v.visitor_email || v.visitorEmail || v.visitor_name || v.visitorName)).size,
+      avgDuration: calculateAverageDuration(filteredData),
+      peakHour: calculatePeakHour(filteredData),
+      noShows: filteredData.filter(v => v.isPreRegistration && !v.check_in_time && new Date(v.visit_date) < new Date()).length,
+      completedVisits: filteredData.filter(v => v.check_in_time && v.check_out_time).length,
+      securityIncidents: masterBlacklistedData.length + filteredData.filter(v => isOverstay(v)).length
+    };
+    
+    // Generate daily statistics
+    const dailyStats = generateDailyStats(filteredData);
+    
+    // Generate host statistics
+    const hostStats = generateHostStats(filteredData);
+    
+    // Generate purpose statistics
+    const purposeStats = generatePurposeStats(filteredData);
+    
+    return {
+      overview,
+      dailyStats,
+      hostStats,
+      purposeStats,
+      generatedAt: new Date().toISOString(),
+      dataSource: 'master_data'
+    };
+  }, [isInitialDataLoaded, masterVisitsData, masterPreRegistrationsData, masterBlacklistedData, reportDateRange]);
+
+  // Helper function to calculate average duration
+  const calculateAverageDuration = (visits) => {
+    const completedVisits = visits.filter(v => v.check_in_time && v.check_out_time);
+    if (completedVisits.length === 0) return 0;
+    
+    const totalDuration = completedVisits.reduce((sum, visit) => {
+      const checkIn = new Date(visit.check_in_time);
+      const checkOut = new Date(visit.check_out_time);
+      return sum + (checkOut - checkIn) / (1000 * 60); // Convert to minutes
+    }, 0);
+    
+    return Math.round(totalDuration / completedVisits.length);
+  };
+
+  // Helper function to calculate peak hour
+  const calculatePeakHour = (visits) => {
+    const hourCounts = {};
+    visits.forEach(visit => {
+      if (visit.check_in_time) {
+        const hour = new Date(visit.check_in_time).getHours();
+        hourCounts[hour] = (hourCounts[hour] || 0) + 1;
+      }
+    });
+    
+    const peakHour = Object.entries(hourCounts).reduce((peak, [hour, count]) => 
+      count > (hourCounts[peak] || 0) ? hour : peak, '12'
+    );
+    
+    return `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}`;
+  };
+
+  // Helper function to check if visit is overstay
+  const isOverstay = (visit) => {
+    if (!visit.check_in_time || visit.check_out_time) return false;
+    const checkInTime = new Date(visit.check_in_time);
+    const now = new Date();
+    const hoursStayed = (now - checkInTime) / (1000 * 60 * 60);
+    return hoursStayed > 8;
+  };
+
+  // Helper function to generate daily statistics
+  const generateDailyStats = (visits) => {
+    const dailyCounts = {};
+    
+    visits.forEach(visit => {
+      const date = visit.check_in_time ? new Date(visit.check_in_time) : new Date(visit.visit_date);
+      const dateKey = date.toISOString().split('T')[0];
+      dailyCounts[dateKey] = (dailyCounts[dateKey] || 0) + 1;
+    });
+    
+    return Object.entries(dailyCounts)
+      .map(([date, visits]) => ({ date, visits }))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  };
+
+  // Helper function to generate host statistics
+  const generateHostStats = (visits) => {
+    const hostCounts = {};
+    
+    visits.forEach(visit => {
+      const hostName = visit.host_name || visit.hostName || visit.person_to_meet || 'Unknown';
+      if (!hostCounts[hostName]) {
+        hostCounts[hostName] = {
+          host_name: hostName,
+          visits: 0,
+          completedVisits: 0,
+          avgDuration: 0,
+          totalDuration: 0
+        };
+      }
+      
+      hostCounts[hostName].visits++;
+      
+      if (visit.check_in_time && visit.check_out_time) {
+        const duration = (new Date(visit.check_out_time) - new Date(visit.check_in_time)) / (1000 * 60);
+        hostCounts[hostName].completedVisits++;
+        hostCounts[hostName].totalDuration += duration;
+        hostCounts[hostName].avgDuration = Math.round(hostCounts[hostName].totalDuration / hostCounts[hostName].completedVisits);
+      }
+    });
+    
+    return Object.values(hostCounts).sort((a, b) => b.visits - a.visits);
+  };
+
+  // Helper function to generate purpose statistics
+  const generatePurposeStats = (visits) => {
+    const purposeCounts = {};
+    
+    visits.forEach(visit => {
+      const purpose = visit.purpose || visit.reason || visit.visit_reason || 'Other';
+      purposeCounts[purpose] = (purposeCounts[purpose] || 0) + 1;
+    });
+    
+    return Object.entries(purposeCounts)
+      .map(([purpose, count]) => ({ purpose, count }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  // Fetch report data (now using master data for consistency)
+  const fetchReportData = useCallback(async () => {
+    if (!isInitialDataLoaded) {
+      console.log('📊 Master data not loaded yet, skipping report generation');
       return;
     }
     
-    console.log('🔄 Starting data fetch...', { userRole, activeVisitorTab, filters });
     setLoading(true);
-    setError('');
     try {
-      let data = [];
-      const apiFilters = {
-        startDate: filters.startDate,
-        endDate: filters.endDate,
-        visitorName: filters.visitorName,
-        visitorId: filters.visitorId,
-        hostName: filters.hostName,
-        limit: 500
-      };
+      console.log('📊 Generating report data from master data for consistency');
       
-      console.log('📊 API Filters:', apiFilters);
-      
-      // Fetch both visits and pre-registrations
-      let visitsData = [];
-      let preRegsData = [];
-      let activeFilters;
-      
-      switch (activeVisitorTab) {
-        case 'pending':
-          console.log('📥 Fetching all data for pending filtering...');
-          
-          // Get all visits and pre-registrations, then filter for pending ones
-          activeFilters = Object.fromEntries(
-            Object.entries(filters).filter(([_, v]) => v)
-          );
-          
-          // Fetch regular visits data
-          let allVisitsData = await getVisits(userRole, activeFilters);
-          console.log('✅ All visits data for pending:', allVisitsData);
-          
-          // Fetch pre-registrations data
-          let allPreRegsData = [];
-          try {
-            console.log('📥 Fetching all pre-registrations for pending...');
-            allPreRegsData = await getPreRegistrations(apiFilters);
-            console.log('✅ All pre-registrations data:', allPreRegsData);
-            
-            // Transform pre-registrations to match visit structure
-            allPreRegsData = allPreRegsData.map(preReg => ({
-              ...preReg,
-              visitorName: preReg.visitor_name,
-              visitorEmail: preReg.visitor_email,
-              visitorPhone: preReg.visitor_phone,
-              hostName: preReg.host_name,
-              visitor_id: preReg.id,
-              visitor_name: preReg.visitor_name,
-              visitor_email: preReg.visitor_email,
-              host_name: preReg.host_name,
-              purpose: preReg.purpose,
-              visit_date: preReg.visit_date,
-              check_in_time: preReg.status === 'checked_in' ? preReg.checked_in_at : null,
-              check_out_time: preReg.status === 'checked_out' ? preReg.checked_out_at : null,
-              isPreRegistration: true
-            }));
-          } catch (preRegError) {
-            console.warn('❌ Failed to fetch pre-registrations for pending:', preRegError);
-            allPreRegsData = [];
-          }
-          
-          // Combine all data
-          const allData = [...allVisitsData, ...allPreRegsData];
-          console.log('✅ Combined all data for pending filter:', allData);
-          
-          // Filter for only pending items using the category logic
-          data = allData.filter(visit => {
-            // Skip blacklisted items
-            if (visit.isBlacklisted || visit.is_blacklisted) return false;
-            
-            // Skip already checked-in items
-            if (visit.check_in_time) return false;
-            
-            // For pre-registrations with pending status, check visit date
-            if (visit.isPreRegistration && visit.status === 'pending') {
-              const visitDate = new Date(visit.visit_date);
-              const today = new Date().setHours(0, 0, 0, 0);
-              const visitDay = visitDate.setHours(0, 0, 0, 0);
-              
-              // Pending: past visits that haven't been completed
-              return visitDay < today;
-            }
-            
-            // For regular visits, check if they are pending (past visits not checked in)
-            if (!visit.isPreRegistration && !visit.check_in_time) {
-              const visitDate = new Date(visit.visit_date);
-              const today = new Date().setHours(0, 0, 0, 0);
-              
-              return visitDate < today;
-            }
-            
-            return false;
-          });
-          
-          console.log('✅ Filtered pending data:', data);
-          preRegsData = data.filter(item => item.isPreRegistration);
-          break;
-        case 'blacklisted':
-          console.log('📥 Fetching blacklisted visitors...');
-          console.log('🏢 Company info:', companyInfo);
-          
-          // No need to pass companyId anymore - backend uses JWT token
-          const blacklistFilters = { ...apiFilters };
-          console.log('📋 Blacklist filters:', blacklistFilters);
-
-          data = await getBlacklistedVisitors(blacklistFilters);
-          console.log('✅ Blacklisted visitors data:', data);
-          
-          // Transform blacklisted visitors to match expected field structure
-          data = data.map(visitor => ({
-            ...visitor,
-            visitorName: visitor.person_name || visitor.visitor_name || visitor.visitorName || visitor.name,
-            visitorEmail: visitor.email || visitor.visitor_email || visitor.visitorEmail,
-            visitorPhone: visitor.phone || visitor.visitor_phone || visitor.visitorPhone,
-            hostName: visitor.person_to_meet || visitor.host_name || visitor.hostName,
-            visitor_id: visitor.visitor_id || visitor.id,
-            visitor_name: visitor.person_name || visitor.visitor_name || visitor.name || visitor.visitorName,
-            visitor_email: visitor.email || visitor.visitor_email || visitor.visitorEmail,
-            host_name: visitor.person_to_meet || visitor.host_name || visitor.hostName,
-            purpose: visitor.visit_reason || visitor.purpose || visitor.reason,
-            reason: visitor.visit_reason || visitor.purpose || visitor.reason,
-            visit_date: visitor.visit_date || visitor.visitDate,
-            check_in_time: visitor.check_in || visitor.check_in_time || visitor.checkInTime,
-            check_out_time: visitor.check_out || visitor.check_out_time || visitor.checkOutTime,
-            blacklist_reason: visitor.reason_to_blacklist || visitor.blacklist_reason,
-            reason_for_blacklist: visitor.reason_to_blacklist || visitor.reason_for_blacklist,
-            visitorPhoto: visitor.picture || visitor.visitorPhoto || visitor.photo,
-            photo: visitor.picture || visitor.photo || visitor.visitorPhoto,
-            isBlacklisted: true,
-            is_blacklisted: true
-          }));
-          
-          console.log('✅ Transformed blacklisted visitors data:', data);
-          
-          // Also fetch blacklisted pre-registrations
-          try {
-            console.log('📥 Fetching blacklisted pre-registrations...');
-            const allPreRegsData = await getPreRegistrations(blacklistFilters);
-            const blacklistedPreRegs = allPreRegsData.filter(preReg => 
-              preReg.is_blacklisted === true || preReg.isBlacklisted === true
-            ).map(preReg => ({
-              ...preReg,
-              visitorName: preReg.visitor_name,
-              visitorEmail: preReg.visitor_email,
-              visitorPhone: preReg.visitor_phone,
-              hostName: preReg.host_name,
-              visitor_id: preReg.id,
-              visitor_name: preReg.visitor_name,
-              visitor_email: preReg.visitor_email,
-              host_name: preReg.host_name,
-              purpose: preReg.purpose,
-              visit_date: preReg.visit_date,
-              check_in_time: preReg.status === 'checked_in' ? preReg.checked_in_at : null,
-              check_out_time: preReg.status === 'checked_out' ? preReg.checked_out_at : null,
-              isPreRegistration: true,
-              isBlacklisted: true
-            }));
-            
-            console.log('✅ Blacklisted pre-registrations:', blacklistedPreRegs);
-            data = [...data, ...blacklistedPreRegs];
-            preRegsData = blacklistedPreRegs; // Set this for the final setPreRegistrations call
-          } catch (preRegError) {
-            console.warn('⚠️ Failed to fetch blacklisted pre-registrations:', preRegError);
-            preRegsData = []; // Ensure it's an empty array
-          }
-          break;
-        default:
-          // Assign activeFilters for default case
-          activeFilters = Object.fromEntries(
-            Object.entries(filters).filter(([_, v]) => v)
-          );
-          
-          console.log('📥 Fetching visits data...');
-          // Fetch visits data
-          visitsData = await getVisits(userRole, activeFilters);
-          console.log('✅ Raw visits data:', visitsData);
-          
-          visitsData = filterVisitsByCategory(visitsData, activeVisitorTab);
-          console.log('✅ Filtered visits data:', visitsData);
-          
-          // Fetch pre-registrations data
-          try {
-            console.log('📥 Fetching pre-registrations...');
-            preRegsData = await getPreRegistrations(apiFilters);
-            console.log('✅ Raw pre-registrations data:', preRegsData);
-            
-            // Transform pre-registrations to match visit structure
-            preRegsData = preRegsData.map(preReg => ({
-              ...preReg,
-              // Map pre-registration fields to visit fields for consistency
-              visitorName: preReg.visitor_name,
-              visitorEmail: preReg.visitor_email,
-              visitorPhone: preReg.visitor_phone,
-              hostName: preReg.host_name,
-              visitor_id: preReg.id,
-              visitor_name: preReg.visitor_name,
-              visitor_email: preReg.visitor_email,
-              host_name: preReg.host_name,
-              purpose: preReg.purpose,
-              visit_date: preReg.visit_date,
-              // Set check-in/out times based on status
-              check_in_time: preReg.status === 'checked_in' ? preReg.checked_in_at : null,
-              check_out_time: preReg.status === 'checked_out' ? preReg.checked_out_at : null,
-              // Add a flag to identify pre-registrations
-              isPreRegistration: true,
-              source: 'pre_registration'
-            }));
-            console.log('✅ Transformed pre-registrations:', preRegsData);
-          } catch (preRegError) {
-            console.warn('❌ Failed to fetch pre-registrations:', preRegError);
-            preRegsData = [];
-          }
-          
-          // Combine both data sources
-          data = [...visitsData, ...preRegsData];
-          console.log('✅ Combined data:', data);
-          break;
-      }
-      
-      console.log('📊 Final data being set:', { 
-        dataLength: data.length, 
-        preRegsDataLength: preRegsData?.length || 0,
-        activeVisitorTab,
-        sampleData: data.slice(0, 2)
-      });
-      setVisits(data);
-      setPreRegistrations(preRegsData || []);
-      
+      // Generate report data from master data instead of separate API call
+      const reportData = generateReportFromMasterData();
+      console.log('📊 Report data generated from master data:', reportData);
+      setReportData(reportData);
     } catch (err) {
-      console.error('❌ Error in fetchVisitorData:', err);
-      setError('Failed to load visitor data.');
+      console.error('❌ Error generating report data:', err);
+      setError('Failed to generate report data');
     } finally {
       setLoading(false);
     }
-  }, [filters, userRole, activeVisitorTab, filterVisitsByCategory]);
+  }, [isInitialDataLoaded]);
 
   useEffect(() => {
-    console.log('🎯 useEffect triggered:', { activeSection, fetchVisitorData });
-    if (activeSection === 'visitor-logs' || activeSection === 'dashboard') {
-      console.log('🚀 Calling fetchVisitorData...');
-      fetchVisitorData();
-    }
-  }, [fetchVisitorData, activeSection]);
-
-  // Fetch report data
-  const fetchReportData = useCallback(async () => {
-    setLoading(true);
-    try {
-      console.log('Fetching report data for date range:', reportDateRange);
-      const data = await getReports(reportDateRange);
-      console.log('Report data received:', data);
-      setReportData(data);
-    } catch (err) {
-      console.error('Error fetching report data:', err);
-      setError('Failed to load report data');
-    } finally {
-      setLoading(false);
-    }
-  }, [reportDateRange]);
-
-  useEffect(() => {
-    if (activeSection === 'reports') {
+    if (activeSection === 'reports' && isInitialDataLoaded) {
+      console.log('📊 Entered reports section - ensuring data consistency');
       fetchReportData();
     }
-  }, [activeSection, fetchReportData]);
+  }, [activeSection, fetchReportData, isInitialDataLoaded]);
+
+  // Regenerate reports when master data changes or date range changes
+  useEffect(() => {
+    if (activeSection === 'reports' && isInitialDataLoaded) {
+      console.log('📊 Regenerating reports due to data/date range change');
+      fetchReportData();
+    }
+  }, [reportDateRange, masterVisitsData.length, masterPreRegistrationsData.length, masterBlacklistedData.length, activeSection, isInitialDataLoaded, fetchReportData]);
 
   // Advanced Visitor Data Fetching
   useEffect(() => {
@@ -691,6 +1208,7 @@ const formatDuration = (minutes) => {
       visitorName: '',
       visitorId: ''
     });
+    setVisitorLogsCurrentPage(1); // Reset visitor logs pagination
     fetchVisitorData();
   };
 
@@ -700,21 +1218,45 @@ const formatDuration = (minutes) => {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
+    setLoading(true);
+    console.log('🚀 Creating new user with data:', newUser);
+    
     try {
-      await createUser(newUser);
-      setNewUser({ name: '', email: '', password: '' });
+      const result = await createUser(newUser);
+      console.log('✅ User creation successful:', result);
+      
+      // Reset form
+      setNewUser({ 
+        name: '', 
+        email: '', 
+        password: '', 
+        role: 'Host',
+        mobile_number: '',
+        department: '',
+        designation: ''
+      });
       setError('');
+      
+      // Refresh users list
+      console.log('🔄 Refreshing users list...');
       const usersData = await getUsers();
+      console.log('📊 Updated users data:', usersData);
       setUsers(usersData);
+      
       setActiveSection('manage-users');
+      // Show success message
+      alert('Host created successfully!');
     } catch (err) {
-      setError(err.message || 'Failed to create user. Please try again.');
-      console.error(err);
+      console.error('❌ Error creating user:', err);
+      setError(err.message || 'Failed to create host. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleFilterSubmit = (e) => {
     e.preventDefault();
+    setVisitorLogsCurrentPage(1); // Reset visitor logs pagination when applying filters
     fetchVisitorData();
   };
 
@@ -724,277 +1266,14 @@ const formatDuration = (minutes) => {
     return Math.round(((current - previous) / previous) * 100);
   };
 
-  // Calculate statistics for current period
-  const calculateOverviewStats = () => {
-    // 1. Total Visitors: Only count visitors who actually checked in
-    const checkedInVisitors = filteredVisits.filter(visit => visit.check_in_time);
-    const totalVisitors = checkedInVisitors.length;
-    
-    // Calculate unique visitors by email (only from checked-in visitors)
-    const uniqueEmails = new Set(checkedInVisitors.map(visit => 
-      visit.visitor_email || visit.visitorEmail || 'unknown'
-    ).filter(email => email !== 'unknown'));
-    const uniqueVisitors = uniqueEmails.size;
-    
-    // Calculate average duration for completed visits
-    const completedVisits = filteredVisits.filter(visit => 
-      visit.check_in_time && visit.check_out_time
-    );
-    
-    let avgDuration = 0;
-    if (completedVisits.length > 0) {
-      const totalDuration = completedVisits.reduce((sum, visit) => {
-        const checkIn = new Date(visit.check_in_time);
-        const checkOut = new Date(visit.check_out_time);
-        return sum + (checkOut - checkIn) / (1000 * 60); // Convert to minutes
-      }, 0);
-      avgDuration = Math.round(totalDuration / completedVisits.length);
-    }
-    
-    // Calculate peak hour (only from checked-in visitors)
-    const hourCounts = {};
-    checkedInVisitors.forEach(visit => {
-      const hour = new Date(visit.check_in_time).getHours();
-      hourCounts[hour] = (hourCounts[hour] || 0) + 1;
-    });
-    
-    const peakHour = Object.entries(hourCounts).reduce((peak, [hour, count]) => 
-      count > (hourCounts[peak] || 0) ? hour : peak, '0'
-    );
-    
-    const peakHourFormatted = peakHour !== '0' ? 
-      `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
-    
-    // Calculate no-shows (pre-registrations that were never checked in)
-    const noShows = filteredVisits.filter(visit => 
-      visit.isPreRegistration && !visit.check_in_time && 
-      new Date(visit.visit_date) < new Date()
-    ).length;
-    
-    // 2. Security Incidents: Include blacklisted visitors AND overstay incidents
-    const now = new Date();
-    
-    // Blacklisted visitors
-    const blacklistedIncidents = filteredVisits.filter(visit => 
-      visit.isBlacklisted || visit.is_blacklisted
-    ).length;
-    
-    // Overstay incidents (visits longer than 8 hours)
-    const overstayIncidents = filteredVisits.filter(visit => {
-      if (!visit.check_in_time) return false;
-      const checkInTime = new Date(visit.check_in_time);
-      const endTime = visit.check_out_time ? new Date(visit.check_out_time) : now;
-      const hoursStayed = (endTime - checkInTime) / (1000 * 60 * 60);
-      return hoursStayed > 8;
-    }).length;
-    
-    // Total security incidents
-    const securityIncidents = blacklistedIncidents + overstayIncidents;
-    
-    return {
-      totalVisitors,
-      uniqueVisitors,
-      avgDuration,
-      peakHour: peakHourFormatted,
-      noShows,
-      securityIncidents,
-      blacklistedIncidents,
-      overstayIncidents
-    };
-  };
-
-  // Calculate previous period stats for comparison
-  const calculatePreviousStats = () => {
-    const currentDate = new Date();
-    const thirtyDaysAgo = new Date(currentDate.getTime() - (30 * 24 * 60 * 60 * 1000));
-    const sixtyDaysAgo = new Date(currentDate.getTime() - (60 * 24 * 60 * 60 * 1000));
-    
-    const previousPeriodVisits = filteredVisits.filter(visit => {
-      const visitDate = new Date(visit.visit_date || visit.check_in_time);
-      return visitDate >= sixtyDaysAgo && visitDate < thirtyDaysAgo;
-    });
-    
-    const totalVisitors = previousPeriodVisits.length;
-    
-    const completedVisits = previousPeriodVisits.filter(visit => 
-      visit.check_in_time && visit.check_out_time
-    );
-    
-    let avgDuration = 0;
-    if (completedVisits.length > 0) {
-      const totalDuration = completedVisits.reduce((sum, visit) => {
-        const checkIn = new Date(visit.check_in_time);
-        const checkOut = new Date(visit.check_out_time);
-        return sum + (checkOut - checkIn) / (1000 * 60);
-      }, 0);
-      avgDuration = Math.round(totalDuration / completedVisits.length);
-    }
-    
-    const securityIncidents = previousPeriodVisits.filter(visit => 
-      visit.isBlacklisted || visit.is_blacklisted
-    ).length;
-    
-    return {
-      totalVisitors,
-      avgDuration,
-      securityIncidents
-    };
-  };
-
-  // Enhanced Host Performance calculations
-  const calculateHostPerformance = () => {
-    const hostStats = {};
-    const hostMeetingTimes = {};
-    const hostVisitReasons = {};
-    
-    filteredVisits.forEach(visit => {
-      const hostName = visit.person_to_meet || visit.personToMeet || visit.host || 'Unknown';
-      
-      // Count visits per host
-      if (!hostStats[hostName]) {
-        hostStats[hostName] = {
-          host_name: hostName,
-          visits: 0,
-          totalDuration: 0,
-          completedVisits: 0,
-          noShows: 0,
-          averageDuration: 0,
-          lastVisit: null,
-          visitReasons: {},
-          peakHours: {}
-        };
-      }
-      
-      hostStats[hostName].visits++;
-      
-      // Calculate duration for completed visits
-      if (visit.check_in_time && visit.check_out_time) {
-        const checkIn = new Date(visit.check_in_time);
-        const checkOut = new Date(visit.check_out_time);
-        const duration = (checkOut - checkIn) / (1000 * 60); // minutes
-        hostStats[hostName].totalDuration += duration;
-        hostStats[hostName].completedVisits++;
-        
-        // Track peak hours for this host
-        const hour = checkIn.getHours();
-        hostStats[hostName].peakHours[hour] = (hostStats[hostName].peakHours[hour] || 0) + 1;
-      }
-      
-      // Track no-shows
-      if (visit.isPreRegistration && !visit.check_in_time && 
-          new Date(visit.visit_date) < new Date()) {
-        hostStats[hostName].noShows++;
-      }
-      
-      // Track visit reasons
-      const reason = visit.visit_reason || visit.visitReason || visit.purpose || 'Unknown';
-      hostStats[hostName].visitReasons[reason] = (hostStats[hostName].visitReasons[reason] || 0) + 1;
-      
-      // Track last visit
-      const visitDate = new Date(visit.check_in_time || visit.visit_date);
-      if (!hostStats[hostName].lastVisit || visitDate > hostStats[hostName].lastVisit) {
-        hostStats[hostName].lastVisit = visitDate;
-      }
-    });
-    
-    // Calculate average duration for each host
-    Object.values(hostStats).forEach(host => {
-      if (host.completedVisits > 0) {
-        host.averageDuration = Math.round(host.totalDuration / host.completedVisits);
-      }
-      
-      // Find peak hour for this host
-      const peakHour = Object.entries(host.peakHours).reduce((peak, [hour, count]) => 
-        count > (host.peakHours[peak] || 0) ? hour : peak, '0'
-      );
-      host.peakHour = peakHour !== '0' ? 
-        `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
-      
-      // Find most common visit reason
-      host.topReason = Object.entries(host.visitReasons).reduce((top, [reason, count]) => 
-        count > (host.visitReasons[top] || 0) ? reason : top, 'N/A'
-      );
-    });
-    
-    // Sort by number of visits
-    const sortedHosts = Object.values(hostStats).sort((a, b) => b.visits - a.visits);
-    
-    return sortedHosts;
-  };
-
-  // Enhanced Security analytics calculations
-  const calculateSecurityInsights = () => {
-    const now = new Date();
-    
-    // Blacklisted visitor attempts
-    const blacklistedAttempts = filteredVisits.filter(v => v.isBlacklisted || v.is_blacklisted);
-    
-    // Overstay incidents (visits longer than 8 hours)
-    const overstays = filteredVisits.filter(v => {
-      if (!v.check_in_time) return false;
-      const checkInTime = new Date(v.check_in_time);
-      const endTime = v.check_out_time ? new Date(v.check_out_time) : now;
-      const hoursStayed = (endTime - checkInTime) / (1000 * 60 * 60);
-      return hoursStayed > 8;
-    });
-    
-    // Incomplete checkouts (24+ hours without checkout)
-    const incompleteCheckouts = filteredVisits.filter(v => 
-      v.check_in_time && 
-      (!v.check_out_time || v.check_out_time.trim() === '') && 
-      (now - new Date(v.check_in_time)) > 24 * 60 * 60 * 1000
-    );
-    
-    // After-hours visits (before 8 AM or after 6 PM)
-    const afterHoursVisits = filteredVisits.filter(v => {
-      if (!v.check_in_time) return false;
-      const hour = new Date(v.check_in_time).getHours();
-      return hour < 8 || hour > 18;
-    });
-    
-    // Frequent visitors (5+ visits in the period)
-    const visitorCounts = {};
-    filteredVisits.forEach(visit => {
-      const email = visit.visitor_email || visit.visitorEmail || 'unknown';
-      visitorCounts[email] = (visitorCounts[email] || 0) + 1;
-    });
-    const frequentVisitors = Object.entries(visitorCounts)
-      .filter(([email, count]) => count >= 5 && email !== 'unknown')
-      .sort((a, b) => b[1] - a[1]);
-    
-    // No-shows (scheduled but didn't arrive)
-    const noShows = filteredVisits.filter(visit => 
-      visit.isPreRegistration && !visit.check_in_time && 
-      new Date(visit.visit_date) < new Date()
-    );
-    
-    // Security score calculation (0-100)
-    let securityScore = 100;
-    securityScore -= blacklistedAttempts.length * 10; // -10 per blacklisted attempt
-    securityScore -= overstays.length * 5; // -5 per overstay
-    securityScore -= incompleteCheckouts.length * 2; // -2 per incomplete checkout
-    securityScore -= afterHoursVisits.length * 1; // -1 per after-hours visit
-    securityScore = Math.max(0, securityScore); // Don't go below 0
-    
-    return {
-      blacklistedAttempts,
-      overstays,
-      incompleteCheckouts,
-      afterHoursVisits,
-      frequentVisitors,
-      noShows,
-      securityScore,
-      totalIncidents: blacklistedAttempts.length + overstays.length + incompleteCheckouts.length,
-      riskLevel: securityScore > 80 ? 'Low' : securityScore > 60 ? 'Medium' : 'High'
-    };
-  };
-
-  // Enhanced visitor analytics calculations
+  // Enhanced visitor analytics calculations using master data for consistency
   const calculateVisitorAnalytics = () => {
-    const totalVisitors = filteredVisits.length;
+    // Use master data instead of filteredVisits for consistency
+    const allMasterData = [...masterVisitsData, ...masterPreRegistrationsData];
+    const totalVisitors = allMasterData.length;
     
     // Calculate unique visitors by email
-    const uniqueEmails = new Set(filteredVisits.map(visit => 
+    const uniqueEmails = new Set(allMasterData.map(visit => 
       visit.visitor_email || visit.visitorEmail || 'unknown'
     ).filter(email => email !== 'unknown'));
     const uniqueVisitors = uniqueEmails.size;
@@ -1003,7 +1282,7 @@ const formatDuration = (minutes) => {
     const returningVisitors = Math.max(0, totalVisitors - uniqueVisitors);
     
     // Calculate average duration for completed visits
-    const completedVisits = filteredVisits.filter(visit => 
+    const completedVisits = allMasterData.filter(visit => 
       visit.check_in_time && visit.check_out_time
     );
     
@@ -1019,7 +1298,7 @@ const formatDuration = (minutes) => {
     
     // Calculate peak hour
     const hourCounts = {};
-    filteredVisits.forEach(visit => {
+    allMasterData.forEach(visit => {
       if (visit.check_in_time) {
         const hour = new Date(visit.check_in_time).getHours();
         hourCounts[hour] = (hourCounts[hour] || 0) + 1;
@@ -1034,7 +1313,7 @@ const formatDuration = (minutes) => {
       `${parseInt(peakHour)}:00 ${parseInt(peakHour) >= 12 ? 'PM' : 'AM'}` : 'N/A';
     
     // Calculate no-shows (pre-registrations that were never checked in)
-    const noShows = filteredVisits.filter(visit => 
+    const noShows = allMasterData.filter(visit => 
       visit.isPreRegistration && !visit.check_in_time && 
       new Date(visit.visit_date) < new Date()
     ).length;
@@ -1044,7 +1323,7 @@ const formatDuration = (minutes) => {
     const visitReasons = {};
     const hostMeetings = {};
     
-    filteredVisits.forEach(visit => {
+    allMasterData.forEach(visit => {
       // Day of week analysis
       if (visit.check_in_time || visit.visit_date) {
         const date = new Date(visit.check_in_time || visit.visit_date);
@@ -1077,8 +1356,8 @@ const formatDuration = (minutes) => {
     );
     
     // Calculate check-in completion rate
-    const totalScheduled = filteredVisits.filter(visit => visit.isPreRegistration).length;
-    const actualCheckIns = filteredVisits.filter(visit => visit.check_in_time).length;
+    const totalScheduled = allMasterData.filter(visit => visit.isPreRegistration).length;
+    const actualCheckIns = allMasterData.filter(visit => visit.check_in_time).length;
     const checkInRate = totalScheduled > 0 ? Math.round((actualCheckIns / totalScheduled) * 100) : 100;
     
     return {
@@ -1389,7 +1668,6 @@ const formatDuration = (minutes) => {
         
         return Object.entries(purposeCounts)
           .sort(([,a], [,b]) => b - a)
-          .slice(0, 8)
           .map(([purpose, count]) => ({ purpose, count }));
       };
 
@@ -1975,30 +2253,14 @@ const formatDuration = (minutes) => {
     }
   };
 
-  const handleShowBlacklistedModal = async () => {
-    try {
-      setLoading(true);
-      setShowBlacklistedModal(true);
-      
-      // Fetch blacklisted visitors data
-      const blacklistedData = await getBlacklistedVisitors();
-      console.log('Fetched blacklisted visitors for modal:', blacklistedData);
-      setBlacklistedVisitors(blacklistedData);
-    } catch (error) {
-      setError('Failed to load blacklisted visitors');
-      console.error('Error fetching blacklisted visitors:', error);
-      setBlacklistedVisitors([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+
 
   const handleShowOverstayModal = () => {
     try {
       setShowOverstayModal(true);
       
-      // Calculate overstay visitors from current filteredVisits
-      const security = calculateSecurityInsights();
+      // Calculate overstay visitors from current securityStats
+      const security = securityStats;
       console.log('Overstay visitors for modal:', security.overstays);
       setOverstayVisitors(security.overstays);
     } catch (error) {
@@ -2012,14 +2274,171 @@ const formatDuration = (minutes) => {
     try {
       setShowIncompleteCheckoutsModal(true);
       
-      // Calculate incomplete checkouts from current filteredVisits
-      const security = calculateSecurityInsights();
+      // Calculate incomplete checkouts from current securityStats
+      const security = securityStats;
       console.log('Incomplete checkout visitors for modal:', security.incompleteCheckouts);
       setIncompleteCheckoutVisitors(security.incompleteCheckouts);
     } catch (error) {
       setError('Failed to load incomplete checkouts');
       console.error('Error fetching incomplete checkout visitors:', error);
       setIncompleteCheckoutVisitors([]);
+    }
+  };
+
+  const handleShowTotalVisitorsModal = () => {
+    try {
+      setShowTotalVisitorsModal(true);
+      setCurrentPage(1); // Reset pagination
+    } catch (error) {
+      setError('Failed to load total visitors');
+      console.error('Error opening total visitors modal:', error);
+    }
+  };
+
+  const handleShowCheckedInVisitorsModal = () => {
+    try {
+      console.log('Total visits:', visits.length);
+      console.log('Sample visit data:', visits[0]);
+      console.log('Sample visit keys:', visits[0] ? Object.keys(visits[0]) : 'No visits');
+      const filteredVisitors = getFilteredVisitorsByStatus('checked-in');
+      console.log('Filtered checked-in visitors:', filteredVisitors.length, filteredVisitors);
+      setShowCheckedInVisitorsModal(true);
+      setCurrentPage(1); // Reset pagination
+    } catch (error) {
+      setError('Failed to load checked-in visitors');
+      console.error('Error opening checked-in visitors modal:', error);
+    }
+  };
+
+  const handleShowPendingVisitorsModal = () => {
+    try {
+      setShowPendingVisitorsModal(true);
+      setCurrentPage(1); // Reset pagination
+    } catch (error) {
+      setError('Failed to load pending visitors');
+      console.error('Error opening pending visitors modal:', error);
+    }
+  };
+
+  const handleShowExpectedVisitorsModal = () => {
+    try {
+      setShowExpectedVisitorsModal(true);
+      setCurrentPage(1); // Reset pagination
+    } catch (error) {
+      setError('Failed to load expected visitors');
+      console.error('Error opening expected visitors modal:', error);
+    }
+  };
+
+  const handleShowCheckedOutVisitorsModal = () => {
+    try {
+      setShowCheckedOutVisitorsModal(true);
+      setCurrentPage(1); // Reset pagination
+    } catch (error) {
+      setError('Failed to load checked-out visitors');
+      console.error('Error opening checked-out visitors modal:', error);
+    }
+  };
+
+  const handleShowBlacklistedVisitorsModal = () => {
+    try {
+      setShowBlacklistedVisitorsModal(true);
+      setCurrentPage(1); // Reset pagination
+    } catch (error) {
+      setError('Failed to load blacklisted visitors');
+      console.error('Error opening blacklisted visitors modal:', error);
+    }
+  };
+
+  const handleShowSecurityIncidentsModal = () => {
+    try {
+      console.log('🔒 Opening Security Incidents modal...');
+      
+      // Gather all security incidents from master data
+      const now = new Date();
+      const allIncidents = [];
+      
+      // 1. Blacklisted visitors
+      masterBlacklistedData.forEach(visitor => {
+        allIncidents.push({
+          id: visitor.id || visitor.visitor_id,
+          type: 'Blacklisted',
+          severity: 'High',
+          visitor_name: visitor.visitor_name || visitor.person_name || visitor.name,
+          visitor_email: visitor.visitor_email || visitor.email,
+          visitor_phone: visitor.visitor_phone || visitor.phone,
+          host_name: visitor.host_name || visitor.person_to_meet,
+          incident_time: visitor.blacklisted_at || visitor.created_at || visitor.visit_date,
+          description: `Blacklisted visitor: ${visitor.blacklist_reason || visitor.reason_to_blacklist || 'Reason not specified'}`,
+          details: visitor.blacklist_reason || visitor.reason_to_blacklist || 'No additional details available',
+          source: 'Blacklist'
+        });
+      });
+      
+      // 2. Overstay incidents from visits
+      [...masterVisitsData, ...masterPreRegistrationsData].forEach(visit => {
+        if (visit.check_in_time && !visit.check_out_time) {
+          const checkInTime = new Date(visit.check_in_time);
+          const hoursStayed = (now - checkInTime) / (1000 * 60 * 60);
+          
+          if (hoursStayed > 8) {
+            allIncidents.push({
+              id: visit.id || visit.visitor_id,
+              type: 'Overstay',
+              severity: hoursStayed > 24 ? 'High' : hoursStayed > 12 ? 'Medium' : 'Low',
+              visitor_name: visit.visitor_name || visit.person_name,
+              visitor_email: visit.visitor_email || visit.email,
+              visitor_phone: visit.visitor_phone || visit.phone,
+              host_name: visit.host_name || visit.person_to_meet,
+              incident_time: visit.check_in_time,
+              description: `Visitor overstay: ${Math.round(hoursStayed)} hours since check-in`,
+              details: `Check-in: ${new Date(visit.check_in_time).toLocaleString()}, Duration: ${Math.round(hoursStayed)} hours`,
+              source: 'Overstay'
+            });
+          }
+        }
+      });
+      
+      // 3. Incomplete checkouts (24+ hours without checkout)
+      [...masterVisitsData, ...masterPreRegistrationsData].forEach(visit => {
+        if (visit.check_in_time && (!visit.check_out_time || visit.check_out_time.trim() === '')) {
+          const checkInTime = new Date(visit.check_in_time);
+          const hoursStayed = (now - checkInTime) / (1000 * 60 * 60);
+          
+          if (hoursStayed > 24) {
+            allIncidents.push({
+              id: visit.id || visit.visitor_id,
+              type: 'Incomplete Checkout',
+              severity: 'Medium',
+              visitor_name: visit.visitor_name || visit.person_name,
+              visitor_email: visit.visitor_email || visit.email,
+              visitor_phone: visit.visitor_phone || visit.phone,
+              host_name: visit.host_name || visit.person_to_meet,
+              incident_time: visit.check_in_time,
+              description: `Incomplete checkout: ${Math.round(hoursStayed)} hours since check-in`,
+              details: `Check-in: ${new Date(visit.check_in_time).toLocaleString()}, No checkout recorded`,
+              source: 'Incomplete Checkout'
+            });
+          }
+        }
+      });
+      
+      // Sort incidents by severity and time (most recent first)
+      allIncidents.sort((a, b) => {
+        const severityOrder = { 'High': 3, 'Medium': 2, 'Low': 1 };
+        if (severityOrder[a.severity] !== severityOrder[b.severity]) {
+          return severityOrder[b.severity] - severityOrder[a.severity];
+        }
+        return new Date(b.incident_time) - new Date(a.incident_time);
+      });
+      
+      console.log('🔒 Security incidents collected:', allIncidents.length);
+      setSecurityIncidentsData(allIncidents);
+      setShowSecurityIncidentsModal(true);
+      setCurrentPage(1); // Reset pagination
+    } catch (error) {
+      setError('Failed to load security incidents');
+      console.error('Error opening security incidents modal:', error);
     }
   };
 
@@ -2099,90 +2518,107 @@ const formatDuration = (minutes) => {
     return null;
   };
 
+  // Helper function to filter visitors by status using consistent master data
+  const getFilteredVisitorsByStatus = useCallback((status) => {
+    // Use master data for consistent filtering across all sections
+    let dataSource = [];
+    
+    switch (status) {
+      case 'blacklisted':
+        // Always use master blacklisted data for consistency
+        dataSource = masterBlacklistedData;
+        console.log('🚫 Using master blacklisted data:', dataSource.length);
+        break;
+      case 'all':
+        // Combine all master data sources
+        dataSource = [...masterVisitsData, ...masterPreRegistrationsData];
+        break;
+      default:
+        // For other statuses, use combined master data and apply filtering
+        dataSource = [...masterVisitsData, ...masterPreRegistrationsData];
+        break;
+    }
+    
+    if (status === 'blacklisted') {
+      return dataSource; // Already filtered blacklisted data
+    }
+    
+    const filtered = dataSource.filter(visit => {
+      switch (status) {
+        case 'checked-in':
+          // Visitors who have checked in but not checked out
+          return visit.check_in_time && !visit.check_out_time && visit.status !== 'checked_out';
+        case 'pending':
+          // Visitors who haven't checked in yet and don't have a future visit date
+          if (visit.isBlacklisted || visit.is_blacklisted) return false;
+          if (visit.check_in_time) return false;
+          
+          if (visit.isPreRegistration && visit.status === 'pending') {
+            const visitDate = new Date(visit.visit_date);
+            const today = new Date().setHours(0, 0, 0, 0);
+            return visitDate.setHours(0, 0, 0, 0) <= today;
+          }
+          
+          if (!visit.isPreRegistration && !visit.check_in_time) {
+            const visitDate = new Date(visit.visit_date);
+            const today = new Date().setHours(0, 0, 0, 0);
+            return visitDate < today;
+          }
+          
+          return false;
+        case 'expected':
+          // Visitors scheduled for today or future dates who haven't checked in
+          return !visit.check_in_time && visit.visit_date && 
+                 new Date(visit.visit_date) >= new Date().setHours(0,0,0,0);
+        case 'checked-out':
+          // Visitors who have both check-in and check-out times
+          return visit.check_in_time && visit.check_out_time;
+        case 'all':
+          return true;
+        default:
+          return true;
+      }
+    });
+    
+    console.log(`� Filtered ${status} visitors:`, filtered.length);
+    return filtered;
+  }, [masterVisitsData, masterPreRegistrationsData, masterBlacklistedData]);
+
+  // Helper function for pagination
+  const getPaginatedData = (data, currentPage, itemsPerPage) => {
+    const indexOfLastItem = currentPage * itemsPerPage;
+    const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+    return data.slice(indexOfFirstItem, indexOfLastItem);
+  };
+
+  // Helper function to get total pages
+  const getTotalPages = (dataLength, itemsPerPage) => {
+    return Math.ceil(dataLength / itemsPerPage);
+  };
+
+  // Calculate visitor counts using master data for consistency
   const calculateVisitorCounts = useCallback(async () => {
-    if (!userRole) return;
+    if (!isInitialDataLoaded) return;
+    
+    console.log('📊 Calculating visitor counts from master data...');
+    
     try {
-      const apiFilters = {
-        startDate: filters.startDate,
-        endDate: filters.endDate,
-        visitorName: filters.visitorName,
-        visitorId: filters.visitorId,
-        hostName: filters.hostName,
-        limit: 500
-      };
-      
-      const [
-        allVisitsData,
-        pendingData,
-        blacklistedData,
-        preRegsData
-      ] = await Promise.all([
-        getVisits(userRole, Object.fromEntries(Object.entries(filters).filter(([_, v]) => v))),
-        getPendingVisitors(apiFilters),
-        getBlacklistedVisitors(apiFilters),
-        getPreRegistrations(apiFilters).catch(() => []) // Fallback to empty array if fails
-      ]);
-
-      // Transform pre-registrations for count calculations
-      const transformedPreRegs = preRegsData.map(preReg => ({
-        ...preReg,
-        visitorName: preReg.visitor_name,
-        visitorEmail: preReg.visitor_email,
-        visitorPhone: preReg.visitor_phone,
-        hostName: preReg.host_name,
-        visitor_id: preReg.id,
-        visitor_name: preReg.visitor_name,
-        visitor_email: preReg.visitor_email,
-        host_name: preReg.host_name,
-        purpose: preReg.purpose,
-        visit_date: preReg.visit_date,
-        check_in_time: preReg.status === 'checked_in' ? preReg.checked_in_at : null,
-        check_out_time: preReg.status === 'checked_out' ? preReg.checked_out_at : null,
-        isPreRegistration: true,
-        isBlacklisted: preReg.is_blacklisted === true || preReg.isBlacklisted === true
-      }));
-
-      // Separate blacklisted pre-registrations for proper counting
-      const blacklistedPreRegs = transformedPreRegs.filter(preReg => preReg.isBlacklisted);
-      const nonBlacklistedPreRegs = transformedPreRegs.filter(preReg => !preReg.isBlacklisted);
-
-      // Combine visits and non-blacklisted pre-registrations for total counts
-      const allData = [...allVisitsData, ...nonBlacklistedPreRegs];
-      
-      // Use category-based counting for accurate distribution
-      const categorizedCounts = {
-        'Checked-In': 0,
-        'Checked-Out': 0,
-        'Expected': 0,
-        'Pending': 0,
-        'Blacklisted': 0
-      };
-      
-      allData.forEach(visit => {
-        const category = getVisitorCategory(visit);
-        if (categorizedCounts.hasOwnProperty(category)) {
-          categorizedCounts[category]++;
-        }
-      });
-      
-      // Add blacklisted visitors from separate API call and blacklisted pre-registrations
-      categorizedCounts['Blacklisted'] = blacklistedData.length + blacklistedPreRegs.length;
+      // Use master data for consistent counts across all sections
+      const allData = [...masterVisitsData, ...masterPreRegistrationsData];
       
       const counts = {
         all: allData.length,
-        'checked-in': categorizedCounts['Checked-In'],
-        pending: categorizedCounts['Pending'],
-        expected: categorizedCounts['Expected'],
-        'checked-out': categorizedCounts['Checked-Out'],
-        blacklisted: categorizedCounts['Blacklisted']
+        'checked-in': getFilteredVisitorsByStatus('checked-in').length,
+        pending: getFilteredVisitorsByStatus('pending').length,
+        expected: getFilteredVisitorsByStatus('expected').length,
+        'checked-out': getFilteredVisitorsByStatus('checked-out').length,
+        blacklisted: masterBlacklistedData.length
       };
       
-      console.log('📊 Category-based counts:', categorizedCounts);
-      console.log('📊 Final counts:', counts);
-      
+      console.log('✅ Updated visitor counts from master data:', counts);
       setVisitorCounts(counts);
 
-      // Calculate visitor type counts based on purpose/reason
+      // Calculate visitor type counts based on purpose/reason using master data
       const typeCounts = {
         guests: 0,
         vendors: 0,
@@ -2242,14 +2678,18 @@ const formatDuration = (minutes) => {
       });
 
       setVisitorTypeCounts(typeCounts);
+      
     } catch (error) {
-      console.error('Error calculating visitor counts:', error);
+      console.error('❌ Error calculating visitor counts:', error);
     }
-  }, [filters, userRole, filterVisitsByCategory]);
+  }, [isInitialDataLoaded, masterVisitsData, masterPreRegistrationsData, masterBlacklistedData, getFilteredVisitorsByStatus]);
 
+  // Update visitor counts when master data changes
   useEffect(() => {
-    calculateVisitorCounts();
-  }, [calculateVisitorCounts]);
+    if (isInitialDataLoaded) {
+      calculateVisitorCounts();
+    }
+  }, [calculateVisitorCounts, isInitialDataLoaded]);
 
   const last30DaysVisits = visits.filter(visit => {
     const visitDate = new Date(visit.check_in_time);
@@ -2365,97 +2805,127 @@ const formatDuration = (minutes) => {
     };
   };
 
-  // Generate fallback visitor trend data if reportData.dailyStats is not available
+  // Generate fallback visitor trend data from master data if reportData is not available
   const generateFallbackTrendData = () => {
     if (!reportData || !reportData.dailyStats || reportData.dailyStats.length === 0) {
-      // Generate last 7 days of sample data
-      const labels = [];
-      const data = [];
-      for (let i = 6; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        labels.push(date.toLocaleDateString());
-        data.push(Math.floor(Math.random() * 20) + 5); // Random sample data
+      // Generate fallback data from master data instead of random data
+      if (isInitialDataLoaded && masterVisitsData.length > 0) {
+        const last7Days = [];
+        const today = new Date();
+        
+        for (let i = 6; i >= 0; i--) {
+          const date = new Date(today);
+          date.setDate(date.getDate() - i);
+          const dateKey = date.toISOString().split('T')[0];
+          
+          // Count actual visits from master data for this date
+          const visitsForDate = masterVisitsData.filter(visit => {
+            const visitDate = visit.check_in_time ? new Date(visit.check_in_time) : new Date(visit.visit_date);
+            return visitDate && visitDate.toISOString().split('T')[0] === dateKey;
+          }).length;
+          
+          last7Days.push({
+            label: date.toLocaleDateString(),
+            data: visitsForDate
+          });
+        }
+        
+        return {
+          labels: last7Days.map(d => d.label),
+          data: last7Days.map(d => d.data)
+        };
       }
-      return { labels, data };
+      
+      // If no master data available, return null instead of random data
+      return null;
     }
     return null;
   };
 
   const fallbackData = generateFallbackTrendData();
 
-  const visitorTrendData = reportData ? {
-    labels: reportData.dailyStats?.map(d => {
-      try {
-        return new Date(d.date).toLocaleDateString();
-      } catch (e) {
-        console.error('Error formatting date:', d.date);
-        return d.date;
-      }
-    }) || fallbackData?.labels || [],
-    datasets: [
-      {
-        label: 'Daily Visitors',
-        data: reportData.dailyStats?.map(d => d.visits || 0) || fallbackData?.data || [],
-        borderColor: 'rgb(75, 192, 192)',
-        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 4,
-        pointHoverRadius: 6,
-      }
-    ]
-  } : fallbackData ? {
-    labels: fallbackData.labels,
-    datasets: [
-      {
-        label: 'Daily Visitors (Sample)',
-        data: fallbackData.data,
-        borderColor: 'rgb(200, 200, 200)',
-        backgroundColor: 'rgba(200, 200, 200, 0.2)',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 4,
-        pointHoverRadius: 6,
-      }
-    ]
-  } : null;
+  // Memoize chart data to prevent unnecessary re-renders
+  const visitorTrendData = useMemo(() => {
+    console.log('📊 Generating visitor trend chart data');
+    return reportData ? {
+      labels: reportData.dailyStats?.map(d => {
+        try {
+          return new Date(d.date).toLocaleDateString();
+        } catch (e) {
+          console.error('Error formatting date:', d.date);
+          return d.date;
+        }
+      }) || fallbackData?.labels || [],
+      datasets: [
+        {
+          label: 'Daily Visitors',
+          data: reportData.dailyStats?.map(d => d.visits || 0) || fallbackData?.data || [],
+          borderColor: 'rgb(75, 192, 192)',
+          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        }
+      ]
+    } : fallbackData ? {
+      labels: fallbackData.labels,
+      datasets: [
+        {
+          label: 'Daily Visitors (Master Data)',
+          data: fallbackData.data,
+          borderColor: 'rgb(75, 192, 192)',
+          backgroundColor: 'rgba(75, 192, 192, 0.2)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        }
+      ]
+    } : null;
+  }, [reportData, fallbackData]);
 
-  const hostActivityData = reportData ? {
-    labels: reportData.hostStats?.map(h => h.host_name) || [],
-    datasets: [
-      {
-        label: 'Visitors Received',
-        data: reportData.hostStats?.map(h => h.visits) || [],
-        backgroundColor: [
-          'rgba(255, 99, 132, 0.8)',
-          'rgba(54, 162, 235, 0.8)',
-          'rgba(255, 205, 86, 0.8)',
-          'rgba(75, 192, 192, 0.8)',
-          'rgba(153, 102, 255, 0.8)',
-        ],
-      }
-    ]
-  } : null;
+  const hostActivityData = useMemo(() => {
+    console.log('📊 Generating host activity chart data');
+    return reportData ? {
+      labels: reportData.hostStats?.map(h => h.host_name) || [],
+      datasets: [
+        {
+          label: 'Visitors Received',
+          data: reportData.hostStats?.map(h => h.visits) || [],
+          backgroundColor: [
+            'rgba(255, 99, 132, 0.8)',
+            'rgba(54, 162, 235, 0.8)',
+            'rgba(255, 205, 86, 0.8)',
+            'rgba(75, 192, 192, 0.8)',
+            'rgba(153, 102, 255, 0.8)',
+          ],
+        }
+      ]
+    } : null;
+  }, [reportData]);
 
-  const visitReasonData = reportData ? {
-    labels: reportData.purposeStats?.map(r => r.purpose) || [],
-    datasets: [
-      {
-        data: reportData.purposeStats?.map(r => r.count) || [],
-        backgroundColor: [
-          '#FF6384',
-          '#36A2EB',
-          '#FFCE56',
-          '#4BC0C0',
-          '#9966FF',
-          '#FF9F40',
-          '#FF6384',
-          '#C9CBCF'
-        ],
-      }
-    ]
-  } : null;
+  const visitReasonData = useMemo(() => {
+    console.log('📊 Generating visit reason chart data');
+    return reportData ? {
+      labels: reportData.purposeStats?.map(r => r.purpose) || [],
+      datasets: [
+        {
+          data: reportData.purposeStats?.map(r => r.count) || [],
+          backgroundColor: [
+            '#FF6384',
+            '#36A2EB',
+            '#FFCE56',
+            '#4BC0C0',
+            '#9966FF',
+            '#FF9F40',
+            '#FF6384',
+            '#C9CBCF'
+          ],
+        }
+      ]
+    } : null;
+  }, [reportData]);
 
   const chartOptions = {
     responsive: true,
@@ -2631,31 +3101,117 @@ const formatDuration = (minutes) => {
           break;
 
         case 'download':
-          const canvas = document.createElement('canvas');
-          const qrCodeElement = document.querySelector('.qr-code-container svg');
+          // Enhanced download functionality for the new QR modal
+          setLoading(true);
+          try {
+            const qrCodeElement = document.querySelector('.qr-code-svg') || 
+                                 document.querySelector('.qr-code-frame svg') || 
+                                 document.querySelector('.qr-code-container svg');
+          
           if (qrCodeElement) {
+            // Create a higher quality canvas for better download
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
             const svgData = new XMLSerializer().serializeToString(qrCodeElement);
-            const canvas2d = canvas.getContext('2d');
-            const img = new Image();
+            
+            // Create a blob from SVG data
             const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
             const url = URL.createObjectURL(svgBlob);
             
+            const img = new Image();
             img.onload = () => {
-              canvas.width = 300;
-              canvas.height = 300;
-              canvas2d.drawImage(img, 0, 0);
+              // Set canvas size for high quality (larger than display size)
+              canvas.width = 400;
+              canvas.height = 400;
               
+              // Fill with white background
+              ctx.fillStyle = '#ffffff';
+              ctx.fillRect(0, 0, canvas.width, canvas.height);
+              
+              // Draw the QR code
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              
+              // Convert to blob and download
               canvas.toBlob((blob) => {
                 const downloadUrl = URL.createObjectURL(blob);
                 const link = document.createElement('a');
                 link.href = downloadUrl;
-                link.download = `qr-code-${selectedVisitor.visitor_name || selectedVisitor.visitorName}.png`;
+                link.download = `qr-code-${(selectedVisitor.visitor_name || selectedVisitor.visitorName || 'visitor').replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+                document.body.appendChild(link);
                 link.click();
+                document.body.removeChild(link);
                 URL.revokeObjectURL(downloadUrl);
-              });
+                setMessage('QR Code downloaded successfully!');
+                setTimeout(() => setMessage(''), 3000);
+                setLoading(false);
+              }, 'image/png', 1.0);
+              
               URL.revokeObjectURL(url);
             };
+            
+            img.onerror = () => {
+              console.error('Failed to load QR code image, trying alternative method...');
+              // Fallback: Create QR code data URL and download
+              try {
+                const qrData = selectedVisitor.qr_code || JSON.stringify({
+                  visitorId: selectedVisitor.visitor_id || selectedVisitor.id,
+                  visitorName: selectedVisitor.visitor_name || selectedVisitor.visitorName,
+                  visitDate: selectedVisitor.visit_date || selectedVisitor.check_in_time
+                });
+                
+                // Create a simple text file with QR data as fallback
+                const textBlob = new Blob([`QR Code Data for ${selectedVisitor.visitor_name || selectedVisitor.visitorName}\n\nData: ${qrData}\n\nScan this data with a QR code generator to recreate the QR code.`], { type: 'text/plain' });
+                const textUrl = URL.createObjectURL(textBlob);
+                const link = document.createElement('a');
+                link.href = textUrl;
+                link.download = `qr-data-${(selectedVisitor.visitor_name || selectedVisitor.visitorName || 'visitor').replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(textUrl);
+                setMessage('QR Code data downloaded as text file!');
+                setTimeout(() => setMessage(''), 3000);
+                setLoading(false);
+              } catch (error) {
+                console.error('Fallback download also failed:', error);
+                setMessage('Failed to download QR code. Please try again.');
+              }
+              URL.revokeObjectURL(url);
+            };
+            
             img.src = url;
+          } else {
+            console.error('QR Code element not found, trying alternative download...');
+            // Alternative method: download QR data as text
+            try {
+              const qrData = selectedVisitor.qr_code || JSON.stringify({
+                visitorId: selectedVisitor.visitor_id || selectedVisitor.id,
+                visitorName: selectedVisitor.visitor_name || selectedVisitor.visitorName,
+                visitDate: selectedVisitor.visit_date || selectedVisitor.check_in_time
+              });
+              
+              const textBlob = new Blob([`QR Code Data for ${selectedVisitor.visitor_name || selectedVisitor.visitorName}\n\nData: ${qrData}\n\nScan this data with a QR code generator to recreate the QR code.`], { type: 'text/plain' });
+              const textUrl = URL.createObjectURL(textBlob);
+              const link = document.createElement('a');
+              link.href = textUrl;
+              link.download = `qr-data-${(selectedVisitor.visitor_name || selectedVisitor.visitorName || 'visitor').replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(textUrl);
+              setMessage('QR Code data downloaded as text file!');
+              setTimeout(() => setMessage(''), 3000);
+              setLoading(false);
+            } catch (error) {
+              console.error('Alternative download failed:', error);
+              setMessage('Failed to download QR code. Please try again.');
+            }
+          }
+          } catch (error) {
+            console.error('Download error:', error);
+            setMessage('Failed to download QR code. Please try again.');
+          } finally {
+            setLoading(false);
           }
           break;
 
@@ -2770,6 +3326,7 @@ const formatDuration = (minutes) => {
 
   const applyHistoryFilters = async () => {
     setLoading(true);
+    setHistoryCurrentPage(1); // Reset pagination when applying filters
     try {
       const history = await getVisitorHistory(historyFilters);
       setVisitorHistory(history);
@@ -2786,9 +3343,9 @@ const formatDuration = (minutes) => {
       startDate: '',
       endDate: '',
       visitorEmail: '',
-      hostName: '',
-      limit: 100
+      hostName: ''
     });
+    setHistoryCurrentPage(1); // Reset pagination when clearing filters
 
     setLoading(true);
     try {
@@ -2796,8 +3353,7 @@ const formatDuration = (minutes) => {
         startDate: '',
         endDate: '',
         visitorEmail: '',
-        hostName: '',
-        limit: 100
+        hostName: ''
       });
       setVisitorHistory(history);
       setMessage('Filters cleared successfully');
@@ -3203,7 +3759,7 @@ const formatDuration = (minutes) => {
                       </ul>
                     )}
                   </li>
-                  <li>
+                  {/* <li>
                     <button
                       className={`sidebar-submenu-btn ${activeSubSection === 'hr-dashboard' ? 'active' : ''}`}
                       onClick={() => {
@@ -3231,7 +3787,7 @@ const formatDuration = (minutes) => {
                         </li>
                       </ul>
                     )}
-                  </li>
+                  </li> */}
                 </ul>
               )}
             </li>
@@ -3573,7 +4129,7 @@ const formatDuration = (minutes) => {
                 </ul>
               )}
             </li>
-            <li>
+            {/* <li>
               <button 
                 className={`sidebar-menu-btn ${activeSection === 'system-admin' ? 'active' : ''}`}
                 onClick={() => {
@@ -3656,7 +4212,7 @@ const formatDuration = (minutes) => {
                   </li>
                 </ul>
               )}
-            </li>
+            </li> */}
           </ul>
         </aside>
         <div className="admin-dashboard-container">
@@ -3678,32 +4234,32 @@ const formatDuration = (minutes) => {
                 <div>
                   <h3>Visitor Status Metrics</h3>
                   <div className="dashboard-stats" style={{ marginBottom: '30px' }}>
-                    <div className="stat-card" onClick={() => handleVisitorMetricClick('all')} style={{ cursor: 'pointer' }}>
+                    <div className="stat-card" onClick={() => handleShowTotalVisitorsModal()} style={{ cursor: 'pointer' } } >
                       <h4>Total Visitors</h4>
                       <p>{visitorCounts.all}</p>
-                      <small>All visitors entered today</small>
+                      <small>All visitors (Check-in and Expected)</small>
                     </div>
-                    <div className="stat-card" onClick={() => handleVisitorMetricClick('checked-in')} style={{ cursor: 'pointer' }}>
+                    <div className="stat-card" onClick={() => handleShowCheckedInVisitorsModal()} style={{ cursor: 'pointer' }}>
                       <h4>Checked-In Visitors</h4>
                       <p>{visitorCounts['checked-in']}</p>
                       <small>Currently inside premises</small>
                     </div>
-                    <div className="stat-card" onClick={() => handleVisitorMetricClick('pending')} style={{ cursor: 'pointer' }}>
+                    <div className="stat-card" onClick={() => handleShowPendingVisitorsModal()} style={{ cursor: 'pointer' }}>
                       <h4>Pending Visitors</h4>
                       <p>{visitorCounts.pending}</p>
                       <small>Registered but not verified</small>
                     </div>
-                    <div className="stat-card" onClick={() => handleVisitorMetricClick('expected')} style={{ cursor: 'pointer' }}>
+                    <div className="stat-card" onClick={() => handleShowExpectedVisitorsModal()} style={{ cursor: 'pointer' }}>
                       <h4>Expected Visitors</h4>
                       <p>{visitorCounts.expected}</p>
                       <small>Pre-registered/scheduled</small>
                     </div>
-                    <div className="stat-card" onClick={() => handleVisitorMetricClick('checked-out')} style={{ cursor: 'pointer' }}>
+                    <div className="stat-card" onClick={() => handleShowCheckedOutVisitorsModal()} style={{ cursor: 'pointer' }}>
                       <h4>Checked-Out Visitors</h4>
                       <p>{visitorCounts['checked-out']}</p>
                       <small>Completed their visit</small>
                     </div>
-                    <div className="stat-card" onClick={() => handleVisitorMetricClick('blacklisted')} style={{ cursor: 'pointer' }}>
+                    <div className="stat-card" onClick={() => handleShowBlacklistedVisitorsModal()} style={{ cursor: 'pointer' }}>
                       <h4>Blacklisted Visitors</h4>
                       <p>{visitorCounts.blacklisted}</p>
                       <small>Restricted from entry</small>
@@ -3765,7 +4321,7 @@ const formatDuration = (minutes) => {
                           let color = 'green';
                           if (alertLevel > 5) { level = 'HIGH'; color = 'red'; }
                           else if (alertLevel > 2) { level = 'MEDIUM'; color = 'orange'; }
-                          return `${level} (${alertLevel} flagged visitors)`;
+                          return `${level} (${alertLevel} Blacklist visitors)`;
                         })()}
                       </div>
                       <div className="summary-item">
@@ -4266,169 +4822,240 @@ const formatDuration = (minutes) => {
               )}
               {activeSubSubSection === 'visitor-type-chart' && (
                 <div>
-                  <h3>Visit Purpose Analytics - Real Database Data</h3>
-                  <p style={{ marginBottom: '20px', color: '#6c757d' }}>
-                    Live analysis of visitor purposes extracted directly from your database. 
-                    This shows the actual distribution of visit reasons as recorded in your system.
+                  <h3>🥧 Visit Purpose Analytics</h3>
+                  <p style={{ marginBottom: '30px', color: '#6c757d', fontSize: '16px' }}>
+                    Live analysis of visitor purposes from your database - showing the distribution of visit reasons.
                   </p>
-                  <div className="dashboard-stats" style={{ marginBottom: '30px' }}>
-                    {(() => {
-                      const chartData = getVisitReasonsData();
-                      if (!chartData || !chartData.labels || chartData.labels[0] === 'No Data Available') {
-                        return (
-                          <div style={{ 
-                            padding: '40px', 
-                            textAlign: 'center', 
-                            background: '#f8f9fa', 
-                            borderRadius: '10px',
-                            border: '1px solid #dee2e6'
-                          }}>
-                            <h4 style={{ color: '#6c757d' }}>No Visit Data Available</h4>
-                            <p style={{ color: '#6c757d' }}>No visits found in the database for analysis.</p>
-                          </div>
-                        );
-                      }
-                      
-                      const total = chartData.datasets[0].data.reduce((sum, value) => sum + value, 0);
-                      return chartData.labels.map((label, index) => (
-                        <div key={label} className="stat-card" style={{ 
-                          background: 'linear-gradient(145deg, #f8f9fa 0%, #e9ecef 100%)',
+                  
+                  {(() => {
+                    const chartData = getVisitReasonsData();
+                    if (!chartData || !chartData.labels || chartData.labels[0] === 'No Data Available') {
+                      return (
+                        <div style={{ 
+                          padding: '60px', 
+                          textAlign: 'center', 
+                          background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)', 
+                          borderRadius: '15px',
                           border: '1px solid #dee2e6',
-                          borderRadius: '10px',
-                          padding: '20px',
-                          textAlign: 'center',
-                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                          borderLeft: `4px solid ${chartData.datasets[0].backgroundColor[index]}`
+                          boxShadow: '0 4px 20px rgba(0,0,0,0.05)'
                         }}>
-                          <h4 style={{ color: '#495057', marginBottom: '10px', fontSize: '16px' }}>{label}</h4>
-                          <p style={{ 
-                            fontSize: '28px', 
-                            fontWeight: 'bold', 
-                            color: chartData.datasets[0].backgroundColor[index],
-                            margin: '10px 0'
-                          }}>
-                            {chartData.datasets[0].data[index]}
-                          </p>
-                          <small style={{ 
-                            color: '#6c757d', 
-                            fontSize: '14px',
-                            display: 'block',
-                            background: '#ffffff',
-                            padding: '8px 12px',
+                          <div style={{ fontSize: '48px', marginBottom: '20px' }}>📊</div>
+                          <h4 style={{ color: '#495057', fontSize: '24px', marginBottom: '10px' }}>No Visit Data Available</h4>
+                          <p style={{ color: '#6c757d', fontSize: '16px' }}>No visits found in the database for analysis.</p>
+                        </div>
+                      );
+                    }
+                    
+                    const total = chartData.datasets[0].data.reduce((sum, value) => sum + value, 0);
+                    const topPurposes = chartData.labels; // Show all purposes
+                    
+                    return (
+                      <div>
+                        {/* Summary Stats */}
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                          gap: '20px',
+                          marginBottom: '40px'
+                        }}>
+                          <div style={{
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            color: 'white',
+                            padding: '25px',
                             borderRadius: '15px',
-                            fontWeight: '600'
+                            textAlign: 'center',
+                            boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)'
                           }}>
-                            {total > 0 ? ((chartData.datasets[0].data[index] / total) * 100).toFixed(1) : 0}% of all visits
-                          </small>
-                          <div style={{ 
-                            marginTop: '8px', 
-                            fontSize: '12px', 
-                            color: '#6c757d',
-                            fontStyle: 'italic'
+                            <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '5px' }}>{total}</div>
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Total Visits</div>
+                          </div>
+                          <div style={{
+                            background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+                            color: 'white',
+                            padding: '25px',
+                            borderRadius: '15px',
+                            textAlign: 'center',
+                            boxShadow: '0 8px 32px rgba(240, 147, 251, 0.3)'
                           }}>
-                            Rank: #{index + 1}
+                            <div style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: '5px' }}>{chartData.labels.length}</div>
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Unique Purposes</div>
+                          </div>
+                          <div style={{
+                            background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+                            color: 'white',
+                            padding: '25px',
+                            borderRadius: '15px',
+                            textAlign: 'center',
+                            boxShadow: '0 8px 32px rgba(79, 172, 254, 0.3)'
+                          }}>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '5px' }}>{chartData.labels[0]}</div>
+                            <div style={{ fontSize: '14px', opacity: 0.9 }}>Most Common</div>
                           </div>
                         </div>
-                      ));
-                    })()}
-                  </div>
-                  <div style={{ maxWidth: '800px', height: '600px', margin: '20px auto', padding: '30px', background: '#ffffff', borderRadius: '15px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
-                    <Doughnut data={getVisitReasonsData()} options={{
-                      responsive: true,
-                      maintainAspectRatio: false,
-                      plugins: {
-                        title: {
-                          display: true,
-                          text: `Visit Purpose Distribution - Real Database Data (${visits?.length || 0} total visits)`,
-                          font: {
-                            size: 18,
-                            weight: 'bold'
-                          },
-                          color: '#2c3e50',
-                          padding: 20
-                        },
-                        legend: {
-                          position: 'right',
-                          labels: {
-                            usePointStyle: true,
-                            pointStyle: 'circle',
-                            padding: 20,
-                            font: {
-                              size: 12,
-                              weight: '500'
-                            },
-                            generateLabels: function(chart) {
-                              const data = chart.data;
-                              if (data.labels.length && data.datasets.length) {
-                                const dataset = data.datasets[0];
-                                const total = dataset.data.reduce((a, b) => a + b, 0);
-                                return data.labels.map((label, i) => {
-                                  const value = dataset.data[i];
-                                  const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                                  return {
-                                    text: `${label}: ${value} (${percentage}%)`,
-                                    fillStyle: dataset.backgroundColor[i],
-                                    strokeStyle: dataset.borderColor || '#fff',
-                                    lineWidth: 2,
-                                    pointStyle: 'circle',
-                                    hidden: false,
-                                    index: i
-                                  };
-                                });
-                              }
-                              return [];
-                            }
-                          }
-                        },
-                        tooltip: {
-                          backgroundColor: 'rgba(0,0,0,0.8)',
-                          titleColor: '#fff',
-                          bodyColor: '#fff',
-                          borderColor: '#ddd',
-                          borderWidth: 1,
-                          cornerRadius: 8,
-                          displayColors: true,
-                          callbacks: {
-                            label: function(context) {
-                              const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                              const value = context.parsed;
-                              const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
-                              return `${context.label}: ${value} visits (${percentage}%)`;
-                            },
-                            afterLabel: function(context) {
-                              const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                              const rank = context.dataset.data
-                                .map((val, idx) => ({ val, idx }))
-                                .sort((a, b) => b.val - a.val)
-                                .findIndex(item => item.idx === context.dataIndex) + 1;
-                              return `Rank: #${rank} most common purpose`;
-                            }
-                          }
-                        }
-                      },
-                      elements: {
-                        arc: {
-                          borderWidth: 3,
-                          borderColor: '#ffffff',
-                          hoverBorderWidth: 4,
-                          hoverOffset: 8
-                        }
-                      },
-                      layout: {
-                        padding: {
-                          top: 20,
-                          bottom: 20,
-                          left: 20,
-                          right: 20
-                        }
-                      },
-                      animation: {
-                        animateRotate: true,
-                        animateScale: true,
-                        duration: 1000
-                      }
-                    }} />
-                  </div>
+
+                        {/* Chart and Top Purposes Side by Side */}
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 350px',
+                          gap: '30px',
+                          alignItems: 'start'
+                        }}>
+                          {/* Doughnut Chart */}
+                          <div style={{
+                            background: '#ffffff',
+                            borderRadius: '20px',
+                            padding: '30px',
+                            boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
+                            border: '1px solid #f0f0f0'
+                          }}>
+                            <div style={{ height: '400px', position: 'relative' }}>
+                              <Doughnut 
+                                data={chartData} 
+                                options={{
+                                  responsive: true,
+                                  maintainAspectRatio: false,
+                                  cutout: '65%',
+                                  plugins: {
+                                    legend: {
+                                      display: false
+                                    },
+                                    tooltip: {
+                                      backgroundColor: 'rgba(255,255,255,0.95)',
+                                      titleColor: '#2c3e50',
+                                      bodyColor: '#2c3e50',
+                                      borderColor: '#e0e0e0',
+                                      borderWidth: 1,
+                                      cornerRadius: 12,
+                                      displayColors: true,
+                                      titleFont: { size: 14, weight: 'bold' },
+                                      bodyFont: { size: 13 },
+                                      padding: 12,
+                                      callbacks: {
+                                        label: function(context) {
+                                          const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                          return `${context.parsed} visits (${percentage}%)`;
+                                        }
+                                      }
+                                    }
+                                  },
+                                  elements: {
+                                    arc: {
+                                      borderWidth: 0,
+                                      hoverBorderWidth: 3,
+                                      hoverBorderColor: '#ffffff',
+                                      hoverOffset: 6
+                                    }
+                                  },
+                                  animation: {
+                                    animateRotate: true,
+                                    duration: 1200
+                                  }
+                                }} 
+                              />
+                              {/* Center Text */}
+                              <div style={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                textAlign: 'center',
+                                pointerEvents: 'none'
+                              }}>
+                                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#2c3e50' }}>{total}</div>
+                                <div style={{ fontSize: '14px', color: '#7f8c8d', marginTop: '5px' }}>Total Visits</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Top Purposes List */}
+                          <div style={{
+                            background: '#ffffff',
+                            borderRadius: '20px',
+                            padding: '30px',
+                            boxShadow: '0 10px 30px rgba(0,0,0,0.1)',
+                            border: '1px solid #f0f0f0'
+                          }}>
+                            <h4 style={{ 
+                              margin: '0 0 25px 0', 
+                              color: '#2c3e50', 
+                              fontSize: '18px',
+                              fontWeight: 'bold',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}>
+                              <span style={{ marginRight: '10px' }}>🏆</span>
+                              Top Visit Purposes
+                            </h4>
+                            <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+                              {topPurposes.map((label, index) => {
+                                const value = chartData.datasets[0].data[index];
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                const color = chartData.datasets[0].backgroundColor[index];
+                                
+                                return (
+                                  <div key={label} style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    padding: '12px 0',
+                                    borderBottom: index < topPurposes.length - 1 ? '1px solid #f0f0f0' : 'none'
+                                  }}>
+                                    <div style={{
+                                      width: '12px',
+                                      height: '12px',
+                                      borderRadius: '50%',
+                                      backgroundColor: color,
+                                      marginRight: '15px',
+                                      flexShrink: 0
+                                    }}></div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{
+                                        fontSize: '14px',
+                                        fontWeight: '600',
+                                        color: '#2c3e50',
+                                        marginBottom: '2px',
+                                        truncate: 'ellipsis',
+                                        overflow: 'hidden',
+                                        whiteSpace: 'nowrap'
+                                      }}>
+                                        {label}
+                                      </div>
+                                      <div style={{
+                                        fontSize: '12px',
+                                        color: '#7f8c8d'
+                                      }}>
+                                        {value} visits • {percentage}%
+                                      </div>
+                                    </div>
+                                    <div style={{
+                                      fontSize: '16px',
+                                      fontWeight: 'bold',
+                                      color: color,
+                                      marginLeft: '10px'
+                                    }}>
+                                      #{index + 1}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {chartData.labels.length > 5 && (
+                              <div style={{
+                                textAlign: 'center',
+                                marginTop: '15px',
+                                padding: '10px',
+                                background: '#f8f9fa',
+                                borderRadius: '10px',
+                                fontSize: '13px',
+                                color: '#6c757d'
+                              }}>
+                                {/* +{chartData.labels.length - 5} more purposes */}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
             </section>
@@ -4550,6 +5177,182 @@ const formatDuration = (minutes) => {
                           )}
                         </div>
                       ) : (
+                        <>
+                          {/* Pagination Info and Controls for Visitor Logs */}
+                          <div style={{ 
+                            marginBottom: '15px', 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            padding: '10px',
+                            backgroundColor: '#f8f9fa',
+                            borderRadius: '5px',
+                            border: '1px solid #dee2e6'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                              <p style={{ margin: 0, color: '#666', fontWeight: '500' }}>
+                                {(() => {
+                                  const filtered = filteredVisits.filter(visit => {
+                                    switch(activeSubSubSection) {
+                                      case 'total-visitors': return true;
+                                      case 'checked-in-visitors': return getVisitorCategory(visit) === 'Checked-In';
+                                      case 'pending-visitors': return getVisitorCategory(visit) === 'Pending';
+                                      case 'expected-visitors': return getVisitorCategory(visit) === 'Expected';
+                                      case 'checked-out-visitors': return getVisitorCategory(visit) === 'Checked-Out';
+                                      case 'blacklist-visitors': return getVisitorCategory(visit) === 'Blacklisted';
+                                      default: return true;
+                                    }
+                                  });
+                                  const startIndex = ((visitorLogsCurrentPage - 1) * visitorLogsItemsPerPage) + 1;
+                                  const endIndex = Math.min(visitorLogsCurrentPage * visitorLogsItemsPerPage, filtered.length);
+                                  return `Showing ${startIndex} to ${endIndex} of ${filtered.length} visitors`;
+                                })()}
+                              </p>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <label style={{ fontSize: '14px', color: '#666' }}>Records per page:</label>
+                                <select
+                                  value={visitorLogsItemsPerPage}
+                                  onChange={(e) => {
+                                    setVisitorLogsItemsPerPage(Number(e.target.value));
+                                    setVisitorLogsCurrentPage(1); // Reset to first page when changing items per page
+                                  }}
+                                  style={{
+                                    padding: '6px 10px',
+                                    border: '1px solid #ddd',
+                                    borderRadius: '4px',
+                                    fontSize: '13px',
+                                    backgroundColor: '#fff'
+                                  }}
+                                >
+                                  <option value="5">5</option>
+                                  <option value="10">10</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <button 
+                                onClick={() => setVisitorLogsCurrentPage(Math.max(1, visitorLogsCurrentPage - 1))}
+                                disabled={visitorLogsCurrentPage === 1}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #007bff',
+                                  backgroundColor: visitorLogsCurrentPage === 1 ? '#f5f5f5' : '#007bff',
+                                  color: visitorLogsCurrentPage === 1 ? '#999' : '#fff',
+                                  cursor: visitorLogsCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                                  borderRadius: '4px',
+                                  fontSize: '13px',
+                                  fontWeight: '500'
+                                }}
+                              >
+                                ← Prev
+                              </button>
+                              <span style={{ 
+                                padding: '6px 10px',
+                                backgroundColor: '#e9ecef',
+                                borderRadius: '4px',
+                                fontSize: '13px',
+                                fontWeight: '500',
+                                color: '#495057'
+                              }}>
+                                {(() => {
+                                  const filtered = filteredVisits.filter(visit => {
+                                    switch(activeSubSubSection) {
+                                      case 'total-visitors': return true;
+                                      case 'checked-in-visitors': return getVisitorCategory(visit) === 'Checked-In';
+                                      case 'pending-visitors': return getVisitorCategory(visit) === 'Pending';
+                                      case 'expected-visitors': return getVisitorCategory(visit) === 'Expected';
+                                      case 'checked-out-visitors': return getVisitorCategory(visit) === 'Checked-Out';
+                                      case 'blacklist-visitors': return getVisitorCategory(visit) === 'Blacklisted';
+                                      default: return true;
+                                    }
+                                  });
+                                  return `Page ${visitorLogsCurrentPage} of ${getTotalPages(filtered.length, visitorLogsItemsPerPage)}`;
+                                })()}
+                              </span>
+                              <button 
+                                onClick={() => {
+                                  const filtered = filteredVisits.filter(visit => {
+                                    switch(activeSubSubSection) {
+                                      case 'total-visitors': return true;
+                                      case 'checked-in-visitors': return getVisitorCategory(visit) === 'Checked-In';
+                                      case 'pending-visitors': return getVisitorCategory(visit) === 'Pending';
+                                      case 'expected-visitors': return getVisitorCategory(visit) === 'Expected';
+                                      case 'checked-out-visitors': return getVisitorCategory(visit) === 'Checked-Out';
+                                      case 'blacklist-visitors': return getVisitorCategory(visit) === 'Blacklisted';
+                                      default: return true;
+                                    }
+                                  });
+                                  setVisitorLogsCurrentPage(Math.min(getTotalPages(filtered.length, visitorLogsItemsPerPage), visitorLogsCurrentPage + 1));
+                                }}
+                                disabled={(() => {
+                                  const filtered = filteredVisits.filter(visit => {
+                                    switch(activeSubSubSection) {
+                                      case 'total-visitors': return true;
+                                      case 'checked-in-visitors': return getVisitorCategory(visit) === 'Checked-In';
+                                      case 'pending-visitors': return getVisitorCategory(visit) === 'Pending';
+                                      case 'expected-visitors': return getVisitorCategory(visit) === 'Expected';
+                                      case 'checked-out-visitors': return getVisitorCategory(visit) === 'Checked-Out';
+                                      case 'blacklist-visitors': return getVisitorCategory(visit) === 'Blacklisted';
+                                      default: return true;
+                                    }
+                                  });
+                                  return visitorLogsCurrentPage === getTotalPages(filtered.length, visitorLogsItemsPerPage);
+                                })()}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #007bff',
+                                  backgroundColor: (() => {
+                                    const filtered = filteredVisits.filter(visit => {
+                                      switch(activeSubSubSection) {
+                                        case 'total-visitors': return true;
+                                        case 'checked-in-visitors': return getVisitorCategory(visit) === 'Checked-In';
+                                        case 'pending-visitors': return getVisitorCategory(visit) === 'Pending';
+                                        case 'expected-visitors': return getVisitorCategory(visit) === 'Expected';
+                                        case 'checked-out-visitors': return getVisitorCategory(visit) === 'Checked-Out';
+                                        case 'blacklist-visitors': return getVisitorCategory(visit) === 'Blacklisted';
+                                        default: return true;
+                                      }
+                                    });
+                                    return visitorLogsCurrentPage === getTotalPages(filtered.length, visitorLogsItemsPerPage) ? '#f5f5f5' : '#007bff';
+                                  })(),
+                                  color: (() => {
+                                    const filtered = filteredVisits.filter(visit => {
+                                      switch(activeSubSubSection) {
+                                        case 'total-visitors': return true;
+                                        case 'checked-in-visitors': return getVisitorCategory(visit) === 'Checked-In';
+                                        case 'pending-visitors': return getVisitorCategory(visit) === 'Pending';
+                                        case 'expected-visitors': return getVisitorCategory(visit) === 'Expected';
+                                        case 'checked-out-visitors': return getVisitorCategory(visit) === 'Checked-Out';
+                                        case 'blacklist-visitors': return getVisitorCategory(visit) === 'Blacklisted';
+                                        default: return true;
+                                      }
+                                    });
+                                    return visitorLogsCurrentPage === getTotalPages(filtered.length, visitorLogsItemsPerPage) ? '#999' : '#fff';
+                                  })(),
+                                  cursor: (() => {
+                                    const filtered = filteredVisits.filter(visit => {
+                                      switch(activeSubSubSection) {
+                                        case 'total-visitors': return true;
+                                        case 'checked-in-visitors': return getVisitorCategory(visit) === 'Checked-In';
+                                        case 'pending-visitors': return getVisitorCategory(visit) === 'Pending';
+                                        case 'expected-visitors': return getVisitorCategory(visit) === 'Expected';
+                                        case 'checked-out-visitors': return getVisitorCategory(visit) === 'Checked-Out';
+                                        case 'blacklist-visitors': return getVisitorCategory(visit) === 'Blacklisted';
+                                        default: return true;
+                                      }
+                                    });
+                                    return visitorLogsCurrentPage === getTotalPages(filtered.length, visitorLogsItemsPerPage) ? 'not-allowed' : 'pointer';
+                                  })(),
+                                  borderRadius: '4px',
+                                  fontSize: '13px',
+                                  fontWeight: '500'
+                                }}
+                              >
+                                Next →
+                              </button>
+                            </div>
+                          </div>
+
                         <table className="admin-dashboard-table visitor-table">
                           <thead>
                             <tr>
@@ -4639,6 +5442,8 @@ const formatDuration = (minutes) => {
                               
                               return filtered;
                             })()
+                              // Apply pagination here
+                              .slice((visitorLogsCurrentPage - 1) * visitorLogsItemsPerPage, visitorLogsCurrentPage * visitorLogsItemsPerPage)
                               .map(visit => {
                                 const overstayAlert = getOverstayAlert(visit);
                                 return (
@@ -4769,6 +5574,7 @@ const formatDuration = (minutes) => {
                               })}
                           </tbody>
                         </table>
+                        </>
                       )}
                     </div>
                   )}
@@ -4889,75 +5695,615 @@ const formatDuration = (minutes) => {
           )}
           {activeSection === 'manage-users' && (
             <section className="admin-dashboard-section">
-              <h3>Manage Users & Privileges</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3>Manage Users & Privileges</h3>
+                <button 
+                  onClick={async () => {
+                    console.log('🔄 Manual refresh triggered');
+                    try {
+                      const usersData = await getUsers();
+                      console.log('✅ Manual fetch successful:', usersData);
+                      setUsers(usersData);
+                    } catch (err) {
+                      console.error('❌ Manual fetch failed:', err);
+                    }
+                  }}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                    fontSize: '14px'
+                  }}
+                >
+                  🔄 Refresh Users Data
+                </button>
+              </div>
+              
+              {/* Data Status Summary */}
+              <div style={{
+                backgroundColor: '#f8f9fa',
+                padding: '20px',
+                borderRadius: '10px',
+                marginBottom: '30px',
+                border: '1px solid #dee2e6'
+              }}>
+                <h5 style={{ margin: '0 0 15px 0', color: '#495057' }}>📊 Current Data Status</h5>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                  <div style={{ padding: '10px', backgroundColor: 'white', borderRadius: '5px' }}>
+                    <strong>Users Loaded:</strong> {users.length}
+                  </div>
+                  <div style={{ padding: '10px', backgroundColor: 'white', borderRadius: '5px' }}>
+                    <strong>User Role:</strong> {userRole || 'Not set'}
+                  </div>
+                  <div style={{ padding: '10px', backgroundColor: 'white', borderRadius: '5px' }}>
+                    <strong>Company:</strong> {companyInfo?.name || 'Not set'}
+                  </div>
+                  {/* <div style={{ padding: '10px', backgroundColor: 'white', borderRadius: '5px' }}>
+                    <strong>Loading:</strong> {loading ? 'Yes' : 'No'}
+                  </div> */}
+                  {error && (
+                    <div style={{ padding: '10px', backgroundColor: '#ffe6e6', borderRadius: '5px', gridColumn: '1 / -1' }}>
+                      <strong>Error:</strong> {error}
+                    </div>
+                  )}
+                </div>
+              </div>
               {activeSubSection === 'add-new-host' && (
-                <div>
-                  <h4>Add New Host</h4>
-                  <form className="admin-dashboard-form" onSubmit={handleCreateUser}>
-                    <label>
-                      Name:
-                      <input 
-                        type="text" 
-                        name="name" 
-                        value={newUser.name} 
-                        onChange={handleUserInputChange} 
-                        required 
-                      />
-                    </label>
-                    <label>
-                      Email:
-                      <input 
-                        type="email" 
-                        name="email" 
-                        value={newUser.email} 
-                        onChange={handleUserInputChange} 
-                        required 
-                      />
-                    </label>
-                    <label>
-                      Password:
-                      <input 
-                        type="password" 
-                        name="password" 
-                        value={newUser.password} 
-                        onChange={handleUserInputChange} 
-                        required 
-                      />
-                    </label>
-                    <button type="submit" disabled={loading}>
-                      {loading ? 'Creating...' : 'Create User'}
-                    </button>
-                  </form>
+                <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+                  <div style={{
+                    background: 'linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%)',
+                    borderRadius: '20px',
+                    padding: '40px',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.08)',
+                    border: '1px solid #e9ecef'
+                  }}>
+                    <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+                      <div style={{ 
+                        fontSize: '48px', 
+                        marginBottom: '15px',
+                        background: 'linear-gradient(45deg, #007bff, #28a745)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text'
+                      }}>
+                        👤
+                      </div>
+                      <h4 style={{ 
+                        fontSize: '28px', 
+                        fontWeight: 'bold', 
+                        color: '#2c3e50', 
+                        margin: '0 0 10px 0' 
+                      }}>
+                        Add New Host
+                      </h4>
+                      <p style={{ 
+                        color: '#6c757d', 
+                        fontSize: '16px', 
+                        margin: 0,
+                        maxWidth: '500px',
+                        marginLeft: 'auto',
+                        marginRight: 'auto'
+                      }}>
+                        Create a new host account with all necessary information and privileges
+                      </p>
+                    </div>
+
+                    <form className="admin-dashboard-form" onSubmit={handleCreateUser}>
+                      {/* Personal Information Section */}
+                      <div style={{ marginBottom: '35px' }}>
+                        <h5 style={{ 
+                          fontSize: '18px', 
+                          fontWeight: 'bold', 
+                          color: '#495057', 
+                          marginBottom: '20px',
+                          padding: '10px 0',
+                          borderBottom: '2px solid #e9ecef',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}>
+                          <span style={{ marginRight: '10px', fontSize: '20px' }}>📋</span>
+                          Personal Information
+                        </h5>
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+                          gap: '25px' 
+                        }}>
+                          <div style={{ position: 'relative' }}>
+                            <label style={{
+                              display: 'block',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#495057',
+                              marginBottom: '8px'
+                            }}>
+                              <span style={{ marginRight: '5px' }}>👤</span>
+                              Full Name *
+                            </label>
+                            <input 
+                              type="text" 
+                              name="name" 
+                              value={newUser.name} 
+                              onChange={handleUserInputChange} 
+                              required 
+                              placeholder="Enter full name"
+                              style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                border: '2px solid #e9ecef',
+                                borderRadius: '12px',
+                                fontSize: '16px',
+                                backgroundColor: '#ffffff',
+                                transition: 'all 0.3s ease',
+                                boxSizing: 'border-box'
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#007bff'}
+                              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+                            />
+                          </div>
+                          
+                          <div style={{ position: 'relative' }}>
+                            <label style={{
+                              display: 'block',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#495057',
+                              marginBottom: '8px'
+                            }}>
+                              <span style={{ marginRight: '5px' }}>📧</span>
+                              Email Address *
+                            </label>
+                            <input 
+                              type="email" 
+                              name="email" 
+                              value={newUser.email} 
+                              onChange={handleUserInputChange} 
+                              required 
+                              placeholder="Enter email address"
+                              style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                border: '2px solid #e9ecef',
+                                borderRadius: '12px',
+                                fontSize: '16px',
+                                backgroundColor: '#ffffff',
+                                transition: 'all 0.3s ease',
+                                boxSizing: 'border-box'
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#007bff'}
+                              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+                            />
+                          </div>
+                          
+                          <div style={{ position: 'relative' }}>
+                            <label style={{
+                              display: 'block',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#495057',
+                              marginBottom: '8px'
+                            }}>
+                              <span style={{ marginRight: '5px' }}>📱</span>
+                              Mobile Number *
+                            </label>
+                            <input 
+                              type="tel" 
+                              name="mobile_number" 
+                              value={newUser.mobile_number} 
+                              onChange={handleUserInputChange} 
+                              required 
+                              placeholder="Enter mobile number"
+                              pattern="[0-9]{10}"
+                              title="Please enter a valid 10-digit mobile number"
+                              style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                border: '2px solid #e9ecef',
+                                borderRadius: '12px',
+                                fontSize: '16px',
+                                backgroundColor: '#ffffff',
+                                transition: 'all 0.3s ease',
+                                boxSizing: 'border-box'
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#007bff'}
+                              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Account & Security Section */}
+                      <div style={{ marginBottom: '35px' }}>
+                        <h5 style={{ 
+                          fontSize: '18px', 
+                          fontWeight: 'bold', 
+                          color: '#495057', 
+                          marginBottom: '20px',
+                          padding: '10px 0',
+                          borderBottom: '2px solid #e9ecef',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}>
+                          <span style={{ marginRight: '10px', fontSize: '20px' }}>🔐</span>
+                          Account & Security
+                        </h5>
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+                          gap: '25px' 
+                        }}>
+                          <div style={{ position: 'relative' }}>
+                            <label style={{
+                              display: 'block',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#495057',
+                              marginBottom: '8px'
+                            }}>
+                              <span style={{ marginRight: '5px' }}>🔑</span>
+                              Password *
+                            </label>
+                            <input 
+                              type="password" 
+                              name="password" 
+                              value={newUser.password} 
+                              onChange={handleUserInputChange} 
+                              required 
+                              placeholder="Enter secure password"
+                              minLength="6"
+                              title="Password must be at least 6 characters long"
+                              style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                border: '2px solid #e9ecef',
+                                borderRadius: '12px',
+                                fontSize: '16px',
+                                backgroundColor: '#ffffff',
+                                transition: 'all 0.3s ease',
+                                boxSizing: 'border-box'
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#007bff'}
+                              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+                            />
+                          </div>
+                          
+                          <div style={{ position: 'relative' }}>
+                            <label style={{
+                              display: 'block',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#495057',
+                              marginBottom: '8px'
+                            }}>
+                              <span style={{ marginRight: '5px' }}>⚡</span>
+                              User Role *
+                            </label>
+                            <select 
+                              name="role" 
+                              value={newUser.role} 
+                              onChange={handleUserInputChange} 
+                              required
+                              style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                border: '2px solid #e9ecef',
+                                borderRadius: '12px',
+                                fontSize: '16px',
+                                backgroundColor: '#ffffff',
+                                transition: 'all 0.3s ease',
+                                boxSizing: 'border-box',
+                                cursor: 'pointer'
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#007bff'}
+                              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+                            >
+                              <option value="Host">Host</option>
+                              <option value="Admin">Admin</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Professional Details Section */}
+                      <div style={{ marginBottom: '35px' }}>
+                        <h5 style={{ 
+                          fontSize: '18px', 
+                          fontWeight: 'bold', 
+                          color: '#495057', 
+                          marginBottom: '20px',
+                          padding: '10px 0',
+                          borderBottom: '2px solid #e9ecef',
+                          display: 'flex',
+                          alignItems: 'center'
+                        }}>
+                          <span style={{ marginRight: '10px', fontSize: '20px' }}>🏢</span>
+                          Professional Details
+                        </h5>
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+                          gap: '25px' 
+                        }}>
+                          <div style={{ position: 'relative' }}>
+                            <label style={{
+                              display: 'block',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#495057',
+                              marginBottom: '8px'
+                            }}>
+                              <span style={{ marginRight: '5px' }}>🏭</span>
+                              Department *
+                            </label>
+                            <input 
+                              type="text" 
+                              name="department" 
+                              value={newUser.department} 
+                              onChange={handleUserInputChange} 
+                              required 
+                              placeholder="Enter department name"
+                              style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                border: '2px solid #e9ecef',
+                                borderRadius: '12px',
+                                fontSize: '16px',
+                                backgroundColor: '#ffffff',
+                                transition: 'all 0.3s ease',
+                                boxSizing: 'border-box'
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#007bff'}
+                              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+                            />
+                          </div>
+                          
+                          <div style={{ position: 'relative' }}>
+                            <label style={{
+                              display: 'block',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#495057',
+                              marginBottom: '8px'
+                            }}>
+                              <span style={{ marginRight: '5px' }}>💼</span>
+                              Designation *
+                            </label>
+                            <input 
+                              type="text" 
+                              name="designation" 
+                              value={newUser.designation} 
+                              onChange={handleUserInputChange} 
+                              required 
+                              placeholder="Enter job title/designation"
+                              style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                border: '2px solid #e9ecef',
+                                borderRadius: '12px',
+                                fontSize: '16px',
+                                backgroundColor: '#ffffff',
+                                transition: 'all 0.3s ease',
+                                boxSizing: 'border-box'
+                              }}
+                              onFocus={(e) => e.target.style.borderColor = '#007bff'}
+                              onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Submit Button */}
+                      <div style={{ textAlign: 'center', marginTop: '40px' }}>
+                        <button 
+                          type="submit" 
+                          disabled={loading} 
+                          style={{
+                            padding: '16px 40px',
+                            backgroundColor: '#007bff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '50px',
+                            fontSize: '18px',
+                            fontWeight: 'bold',
+                            cursor: loading ? 'not-allowed' : 'pointer',
+                            opacity: loading ? 0.7 : 1,
+                            transition: 'all 0.3s ease',
+                            boxShadow: '0 4px 15px rgba(0, 123, 255, 0.3)',
+                            transform: loading ? 'scale(0.98)' : 'scale(1)',
+                            minWidth: '200px'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!loading) {
+                              e.target.style.backgroundColor = '#0056b3';
+                              e.target.style.transform = 'scale(1.05)';
+                              e.target.style.boxShadow = '0 6px 20px rgba(0, 123, 255, 0.4)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!loading) {
+                              e.target.style.backgroundColor = '#007bff';
+                              e.target.style.transform = 'scale(1)';
+                              e.target.style.boxShadow = '0 4px 15px rgba(0, 123, 255, 0.3)';
+                            }
+                          }}
+                        >
+                          {loading ? (
+                            <>
+                              <span style={{ marginRight: '10px' }}>⏳</span>
+                              Creating Host...
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ marginRight: '10px' }}>✨</span>
+                              Create Host Account
+                            </>
+                          )}
+                        </button>
+                      </div>
+                      
+                      {/* Auto-assignment Information 
+                      <div style={{ 
+                        marginTop: '30px', 
+                        padding: '20px', 
+                        background: 'linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%)',
+                        borderRadius: '15px', 
+                        border: '1px solid #bbdefb'
+                      }}>
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          marginBottom: '15px' 
+                        }}>
+                          <span style={{ fontSize: '24px', marginRight: '10px' }}>ℹ️</span>
+                          <strong style={{ fontSize: '16px', color: '#1976d2' }}>
+                            Auto-Assignment Information
+                          </strong>
+                        </div>
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
+                          gap: '15px',
+                          fontSize: '14px', 
+                          color: '#555' 
+                        }}>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            background: '#ffffff',
+                            borderRadius: '8px',
+                            border: '1px solid #e1f5fe'
+                          }}>
+                            <span style={{ marginRight: '8px' }}>🆔</span>
+                            <span><strong>ID:</strong> Auto-generated</span>
+                          </div>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            background: '#ffffff',
+                            borderRadius: '8px',
+                            border: '1px solid #e1f5fe'
+                          }}>
+                            <span style={{ marginRight: '8px' }}>🏢</span>
+                            <span><strong>Company:</strong> From your company</span>
+                          </div>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            background: '#ffffff',
+                            borderRadius: '8px',
+                            border: '1px solid #e1f5fe'
+                          }}>
+                            <span style={{ marginRight: '8px' }}>⏰</span>
+                            <span><strong>Last Login:</strong> Set on first login</span>
+                          </div>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            background: '#ffffff',
+                            borderRadius: '8px',
+                            border: '1px solid #e1f5fe'
+                          }}>
+                            <span style={{ marginRight: '8px' }}>✅</span>
+                            <span><strong>Verification:</strong> Auto-verified</span>
+                          </div>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center',
+                            padding: '8px 12px',
+                            background: '#ffffff',
+                            borderRadius: '8px',
+                            border: '1px solid #e1f5fe'
+                          }}>
+                            <span style={{ marginRight: '8px' }}>🟢</span>
+                            <span><strong>Status:</strong> Auto-activated</span>
+                          </div>
+                        </div>
+                      </div>
+                        */}
+                    </form>
+                  </div>
                 </div>
               )}
               <div className="user-list" style={{ marginTop: '20px' }}>
                 <h4>Existing Users</h4>
+                
                 {users.length === 0 ? (
                   <p>No users found.</p>
                 ) : (
-                  <table className="admin-dashboard-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Role</th>
-                        {/* <th>Actions</th> */}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map(user => (
-                        <tr key={user.id}>
-                          <td>{user.name}</td>
-                          <td>{user.email}</td>
-                          <td>{user.role}</td>
-                          {/* <td>
-                            <button className="action-btn">Edit</button>
-                            <button className="action-btn delete">Delete</button>
-                          </td> */}
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="admin-dashboard-table" style={{ minWidth: '800px' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ backgroundColor: '#e3f2fd', color: '#1976d2' }}>Name</th>
+                          <th style={{ backgroundColor: '#f3e5f5', color: '#7b1fa2' }}>Email</th>
+                          <th style={{ backgroundColor: '#e8f5e8', color: '#388e3c' }}>Role</th>
+                          <th style={{ backgroundColor: '#fff3e0', color: '#f57c00' }}>📱 Mobile</th>
+                          <th style={{ backgroundColor: '#fce4ec', color: '#c2185b' }}>🏭 Department</th>
+                          <th style={{ backgroundColor: '#e0f2f1', color: '#00796b' }}>💼 Designation</th>
+                          <th style={{ backgroundColor: '#f1f8e9', color: '#689f38' }}>✅ Status</th>
+                          {/* <th>Actions</th> */}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {users.map((user, index) => {
+                          // Enhanced debugging for each user row
+                          console.log(`🔍 Rendering user ${index + 1}:`, user);
+                          return (
+                            <tr key={user.id || index}>
+                              <td style={{ fontWeight: 'bold' }}>
+                                {user.name || user.firstName + ' ' + user.lastName || 'N/A'}
+                              </td>
+                              <td>{user.email || 'N/A'}</td>
+                              <td>
+                                <span style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '12px',
+                                  fontSize: '12px',
+                                  fontWeight: 'bold',
+                                  backgroundColor: user.role === 'admin' ? '#dc3545' : '#28a745',
+                                  color: 'white'
+                                }}>
+                                  {user.role === 'admin' ? ' Admin' : ' Host'}
+                                </span>
+                              </td>
+                              <td>
+                                {user.mobile_number || user.mobile || user.phone || user.contact_number || 'N/A'}
+                              </td>
+                              <td>
+                                {user.department || user.dept || user.section || 'N/A'}
+                              </td>
+                              <td>
+                                {user.designation || user.position || user.title || user.job_title || 'N/A'}
+                              </td>
+                              <td>
+                                <span style={{
+                                  padding: '3px 6px',
+                                  borderRadius: '10px',
+                                  fontSize: '11px',
+                                  fontWeight: 'bold',
+                                  backgroundColor: user.is_verified ? '#d4edda' : '#fff3cd',
+                                  color: user.is_verified ? '#155724' : '#856404'
+                                }}>
+                                  {user.is_verified ? '✅ Verified' : '⏳ Pending'}
+                                </span>
+                              </td>
+                              {/* <td>
+                                <button className="action-btn">Edit</button>
+                                <button className="action-btn delete">Delete</button>
+                              </td> */}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </section>
@@ -5113,7 +6459,7 @@ const formatDuration = (minutes) => {
                                       <div className="stat-number">{currentStats.peakHour}</div>
                                       <div className="stat-change">Most busy time</div>
                                     </div>
-                                    <div className="stat-card">
+                                    <div className="stat-card clickable-stat-card" onClick={handleShowSecurityIncidentsModal} style={{ cursor: 'pointer' }} title="Click to view detailed security incidents">
                                       <h3>Security Incidents</h3>
                                       <div className="stat-number">{currentStats.securityIncidents}</div>
                                       <div className={`stat-change ${incidentChange <= 0 ? 'positive' : 'negative'}`}>
@@ -5861,7 +7207,7 @@ const formatDuration = (minutes) => {
                           </div>
                           <div className="security-stats">
                             <div className="dashboard-stats">
-                              <div className="stat-card clickable-stat-card" onClick={handleShowBlacklistedModal} style={{ cursor: 'pointer' }}>
+                              <div className="stat-card clickable-stat-card" onClick={handleShowBlacklistedVisitorsModal} style={{ cursor: 'pointer' }}>
                                 <h4>Blacklisted Visitors</h4>
                                 <p>{security.blacklistedAttempts.length}</p>
                                 <small>Restricted entries - Click to view details</small>
@@ -6380,16 +7726,23 @@ const formatDuration = (minutes) => {
                           />
                         </div>
                         <div className="filter-item">
-                          <label>Limit:</label>
+                          <label>Records per page:</label>
                           <select
-                            name="limit"
-                            value={historyFilters.limit}
-                            onChange={handleHistoryFilterChange}
+                            value={historyItemsPerPage}
+                            onChange={(e) => {
+                              setHistoryItemsPerPage(Number(e.target.value));
+                              setHistoryCurrentPage(1); // Reset to first page when changing items per page
+                            }}
+                            style={{
+                              padding: '8px 12px',
+                              border: '1px solid #ddd',
+                              borderRadius: '4px',
+                              fontSize: '14px',
+                              backgroundColor: '#fff'
+                            }}
                           >
-                            <option value="50">50</option>
-                            <option value="100">100</option>
-                            <option value="200">200</option>
-                            <option value="500">500</option>
+                            <option value="5">5 records</option>
+                            <option value="10">10 records</option>
                           </select>
                         </div>
                         <div className="filter-item">
@@ -6414,23 +7767,50 @@ const formatDuration = (minutes) => {
                             <p>No visitor history found for the selected criteria.</p>
                           </div>
                         ) : (
-                          <table className="history-table">
-                            <thead>
-                              <tr>
-                                <th>Date & Time</th>
-                                <th>Visitor</th>
-                                <th>Email</th>
-                                <th>Company</th>
-                                <th>Host</th>
-                                <th>Purpose</th>
-                                <th>Duration</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                                <th>BlackList</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {visitorHistory.map(visit => (
+                          <>
+                            {/* Pagination Info and Controls */}
+                            <div className="history-pagination-info">
+                              <p>
+                                Showing {((historyCurrentPage - 1) * historyItemsPerPage) + 1} to {Math.min(historyCurrentPage * historyItemsPerPage, visitorHistory.length)} of {visitorHistory.length} visitor records
+                              </p>
+                              <div className="history-pagination-controls">
+                                <button 
+                                  onClick={() => setHistoryCurrentPage(Math.max(1, historyCurrentPage - 1))}
+                                  disabled={historyCurrentPage === 1}
+                                  className="history-pagination-button history-pagination-prev-next"
+                                >
+                                  ← Previous
+                                </button>
+                                <span className="history-pagination-page-info">
+                                  Page {historyCurrentPage} of {getTotalPages(visitorHistory.length, historyItemsPerPage)}
+                                </span>
+                                <button 
+                                  onClick={() => setHistoryCurrentPage(Math.min(getTotalPages(visitorHistory.length, historyItemsPerPage), historyCurrentPage + 1))}
+                                  disabled={historyCurrentPage === getTotalPages(visitorHistory.length, historyItemsPerPage)}
+                                  className="history-pagination-button history-pagination-prev-next"
+                                >
+                                  Next →
+                                </button>
+                              </div>
+                            </div>
+
+                            <table className="history-table">
+                              <thead>
+                                <tr>
+                                  <th>Date & Time</th>
+                                  <th>Visitor</th>
+                                  <th>Email</th>
+                                  <th>Company</th>
+                                  <th>Host</th>
+                                  <th>Purpose</th>
+                                  <th>Duration</th>
+                                  <th>Status</th>
+                                  <th>Actions</th>
+                                  <th>BlackList</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {getPaginatedData(visitorHistory, historyCurrentPage, historyItemsPerPage).map(visit => (
                                 <tr key={visit.id}>
                                   <td>
                                     <div className="datetime-cell">
@@ -6504,6 +7884,68 @@ const formatDuration = (minutes) => {
                               ))}
                             </tbody>
                           </table>
+
+                          {/* Bottom Pagination Controls */}
+                          <div className="history-bottom-pagination">
+                            <button 
+                              onClick={() => setHistoryCurrentPage(1)}
+                              disabled={historyCurrentPage === 1}
+                              className="history-pagination-button history-pagination-first-last"
+                            >
+                              First
+                            </button>
+                            <button 
+                              onClick={() => setHistoryCurrentPage(Math.max(1, historyCurrentPage - 1))}
+                              disabled={historyCurrentPage === 1}
+                              className="history-pagination-button history-pagination-prev-next"
+                            >
+                              ← Prev
+                            </button>
+                            
+                            {/* Page Numbers */}
+                            {(() => {
+                              const totalPages = getTotalPages(visitorHistory.length, historyItemsPerPage);
+                              const maxVisiblePages = 5;
+                              const pages = [];
+                              
+                              let startPage = Math.max(1, historyCurrentPage - Math.floor(maxVisiblePages / 2));
+                              let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+                              
+                              if (endPage - startPage + 1 < maxVisiblePages) {
+                                startPage = Math.max(1, endPage - maxVisiblePages + 1);
+                              }
+                              
+                              for (let i = startPage; i <= endPage; i++) {
+                                pages.push(
+                                  <button
+                                    key={i}
+                                    onClick={() => setHistoryCurrentPage(i)}
+                                    className={`history-pagination-number ${i === historyCurrentPage ? 'active' : ''}`}
+                                  >
+                                    {i}
+                                  </button>
+                                );
+                              }
+                              
+                              return pages;
+                            })()}
+                            
+                            <button 
+                              onClick={() => setHistoryCurrentPage(Math.min(getTotalPages(visitorHistory.length, historyItemsPerPage), historyCurrentPage + 1))}
+                              disabled={historyCurrentPage === getTotalPages(visitorHistory.length, historyItemsPerPage)}
+                              className="history-pagination-button history-pagination-prev-next"
+                            >
+                              Next →
+                            </button>
+                            <button 
+                              onClick={() => setHistoryCurrentPage(getTotalPages(visitorHistory.length, historyItemsPerPage))}
+                              disabled={historyCurrentPage === getTotalPages(visitorHistory.length, historyItemsPerPage)}
+                              className="history-pagination-button history-pagination-first-last"
+                            >
+                              Last
+                            </button>
+                          </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -6563,70 +8005,82 @@ const formatDuration = (minutes) => {
             </div>
           )}
 
-          {/* Blacklisted Visitors Modal */}
-          {showBlacklistedModal && (
-            <div className="modal-overlay" onClick={() => setShowBlacklistedModal(false)}>
-              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '90%', maxHeight: '90%' }}>
+          {/* Total Visitors Modal */}
+          {showTotalVisitorsModal && (
+            <div className="modal-overlay" onClick={() => setShowTotalVisitorsModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '95%', maxHeight: '90%' }}>
                 <div className="modal-header">
-                  <h3>🚫 Blacklisted Visitors</h3>
-                  <button className="modal-close" onClick={() => setShowBlacklistedModal(false)}>×</button>
+                  <h3>👤 Total Visitors</h3>
+                  <button className="modal-close" onClick={() => setShowTotalVisitorsModal(false)}>×</button>
                 </div>
                 
                 <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto' }}>
                   {loading ? (
                     <div style={{ textAlign: 'center', padding: '20px' }}>
-                      <p>Loading blacklisted visitors...</p>
+                      <p>Loading visitors...</p>
                     </div>
-                  ) : blacklistedVisitors.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
-                      <p>✅ No blacklisted visitors found.</p>
-                      <p>Your security status is clear.</p>
-                    </div>
-                  ) : (
-                    <div className="blacklisted-visitors-content">
-                      <div className="blacklisted-summary" style={{ 
-                        backgroundColor: '#ffebee', 
-                        border: '1px solid #ffcdd2', 
-                        borderRadius: '8px', 
-                        padding: '15px', 
-                        marginBottom: '20px' 
-                      }}>
-                        <h4 style={{ color: '#d32f2f', margin: '0 0 10px 0' }}>
-                          ⚠️ Security Alert: {blacklistedVisitors.length} Blacklisted Visitor{blacklistedVisitors.length > 1 ? 's' : ''}
-                        </h4>
-                        <p style={{ margin: '0', fontSize: '14px', color: '#666' }}>
-                          These visitors have been flagged and restricted from accessing the premises.
-                        </p>
+                  ) : (() => {
+                    // Use all master data for total visitors instead of filtered visits
+                    const allVisitors = [...masterVisitsData, ...masterPreRegistrationsData];
+                    return allVisitors.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+                        <p>📊 No visitors found.</p>
+                        <p>No visitor data available for the current period.</p>
                       </div>
+                    ) : (
+                      <div className="total-visitors-content">
+                        <div className="visitors-summary" style={{ 
+                          backgroundColor: '#e3f2fd', 
+                          border: '1px solid #1976d2', 
+                          borderRadius: '8px', 
+                          padding: '15px', 
+                          marginBottom: '20px' 
+                        }}>
+                          <h4 style={{ color: '#1976d2', margin: '0 0 10px 0' }}>
+                            📊 Total Visitors: {allVisitors.length}
+                          </h4>
+                          <div style={{ display: 'flex', gap: '20px', fontSize: '14px', color: '#666' }}>
+                            <span>✅ Checked In: {allVisitors.filter(v => v.check_in_time && !v.check_out_time).length}</span>
+                            <span>❌ Checked Out: {allVisitors.filter(v => v.check_out_time).length}</span>
+                            <span>⏳ Pending: {allVisitors.filter(v => !v.check_in_time).length}</span>
+                            <span>📋 Pre-Registrations: {masterPreRegistrationsData.length}</span>
+                            <span>🚫 Blacklisted: {masterBlacklistedData.length}</span>
+                          </div>
+                        </div>
 
-                      <div className="blacklisted-table-wrapper">
-                        <table className="blacklisted-visitors-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <thead>
-                            <tr style={{ backgroundColor: '#f5f5f5' }}>
-                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Photo</th>
-                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Visitor Name</th>
-                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Email</th>
-                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Phone</th>
-                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Host Met</th>
-                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Last Visit</th>
-                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Blacklist Reason</th>
-                              <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {blacklistedVisitors.map((visitor, index) => (
-                              <tr key={visitor.visitor_id || visitor.id || index} style={{ borderBottom: '1px solid #eee' }}>
-                                <td style={{ padding: '12px' }}>
-                                  {visitor.picture || visitor.photo || visitor.visitorPhoto ? (
+                        <div className="visitors-table-wrapper">
+                          <table className="visitors-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ backgroundColor: '#f5f5f5' }}>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Date</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Photo</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Visitor Name</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Type</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Host</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Purpose</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Check-In</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Check-Out</th>
+                                <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd' }}>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {allVisitors.slice().reverse().map((visit, index) => (
+                                <tr key={visit.id || index} style={{ borderBottom: '1px solid #eee' }}>
+                                  <td style={{ padding: '12px' }}>
+                                    {visit.visit_date ? new Date(visit.visit_date).toLocaleDateString() : 
+                                     visit.check_in_time ? new Date(visit.check_in_time).toLocaleDateString() : 'N/A'}
+                                  </td>
+                                  <td style={{ padding: '12px' }}>
+                                    {visit.picture || visit.photo || visit.visitorPhoto ? (
                                     <img 
-                                      src={visitor.picture || visitor.photo || visitor.visitorPhoto} 
+                                      src={visit.picture || visit.photo || visit.visitorPhoto} 
                                       alt="Visitor" 
                                       style={{ 
                                         width: '40px', 
                                         height: '40px', 
                                         borderRadius: '50%', 
                                         objectFit: 'cover',
-                                        border: '2px solid #d32f2f'
+                                        border: '1px solid #ddd'
                                       }} 
                                     />
                                   ) : (
@@ -6634,8 +8088,8 @@ const formatDuration = (minutes) => {
                                       width: '40px', 
                                       height: '40px', 
                                       borderRadius: '50%', 
-                                      backgroundColor: '#ffebee', 
-                                      border: '2px solid #d32f2f',
+                                      backgroundColor: '#f0f0f0', 
+                                      border: '1px solid #ddd',
                                       display: 'flex', 
                                       alignItems: 'center', 
                                       justifyContent: 'center',
@@ -6646,74 +8100,70 @@ const formatDuration = (minutes) => {
                                   )}
                                 </td>
                                 <td style={{ padding: '12px' }}>
-                                  <div style={{ fontWeight: 'bold', color: '#d32f2f' }}>
-                                    {visitor.person_name || visitor.visitor_name || visitor.name || 'N/A'}
+                                  <div style={{ fontWeight: 'bold' }}>
+                                    {visit.person_name || visit.visitor_name || visit.visitorName || visit.name || 'N/A'}
                                   </div>
-                                  <div style={{ 
-                                    fontSize: '12px', 
-                                    backgroundColor: '#ffebee', 
-                                    color: '#d32f2f', 
-                                    padding: '2px 6px', 
-                                    borderRadius: '10px', 
-                                    display: 'inline-block', 
-                                    marginTop: '4px' 
+                                  <div style={{ fontSize: '12px', color: '#666' }}>
+                                    {visit.visitor_id || visit.visitorEmail || visit.visitor_email || 'No ID'}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '12px' }}>
+                                  <span style={{
+                                    padding: '3px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '11px',
+                                    fontWeight: 'bold',
+                                    backgroundColor: visit.isPreRegistration ? '#e3f2fd' : '#f3e5f5',
+                                    color: visit.isPreRegistration ? '#1976d2' : '#7b1fa2'
                                   }}>
-                                    🚫 BLACKLISTED
-                                  </div>
+                                    {visit.isPreRegistration ? '📋 Pre-Reg' : '👤 Regular'}
+                                  </span>
+                                  {(visit.isBlacklisted || visit.is_blacklisted) && (
+                                    <span style={{
+                                      padding: '2px 6px',
+                                      borderRadius: '10px',
+                                      fontSize: '10px',
+                                      fontWeight: 'bold',
+                                      backgroundColor: '#ffebee',
+                                      color: '#d32f2f',
+                                      marginLeft: '5px'
+                                    }}>
+                                      🚫 Blacklisted
+                                    </span>
+                                  )}
                                 </td>
                                 <td style={{ padding: '12px' }}>
-                                  {visitor.email || visitor.visitor_email || 'N/A'}
+                                  {visit.person_to_meet || visit.host_name || visit.hostName || 'N/A'}
                                 </td>
                                 <td style={{ padding: '12px' }}>
-                                  {visitor.phone || visitor.visitor_phone || 'N/A'}
+                                  {visit.visit_reason || visit.purpose || visit.reason || 'N/A'}
                                 </td>
                                 <td style={{ padding: '12px' }}>
-                                  {visitor.person_to_meet || visitor.host_name || 'N/A'}
-                                </td>
-                                <td style={{ padding: '12px' }}>
-                                  {visitor.visit_date || visitor.check_in_time ? 
-                                    new Date(visitor.visit_date || visitor.check_in_time).toLocaleDateString() : 
-                                    'N/A'
+                                  {visit.check_in_time ? 
+                                    new Date(visit.check_in_time).toLocaleTimeString() : 
+                                    '-'
                                   }
                                 </td>
-                                <td style={{ padding: '12px', maxWidth: '200px' }}>
-                                  <div style={{ 
-                                    fontSize: '13px', 
-                                    color: '#d32f2f',
-                                    backgroundColor: '#ffebee',
-                                    padding: '6px 8px',
-                                    borderRadius: '4px',
-                                    border: '1px solid #ffcdd2'
-                                  }}>
-                                    {visitor.reason_to_blacklist || visitor.reason_for_blacklist || visitor.blacklist_reason || 'No reason specified'}
-                                  </div>
+                                <td style={{ padding: '12px' }}>
+                                  {visit.check_out_time ? 
+                                    new Date(visit.check_out_time).toLocaleTimeString() : 
+                                    '-'
+                                  }
                                 </td>
                                 <td style={{ padding: '12px' }}>
-                                  <button
-                                    onClick={() => {
-                                      if (visitor.visitor_id) {
-                                        handleRemoveFromBlacklist(visitor.visitor_id);
-                                        setShowBlacklistedModal(false);
-                                      } else {
-                                        setError('Cannot unblacklist: Visitor ID not found');
-                                      }
-                                    }}
-                                    className="unblacklist-btn"
-                                    disabled={!visitor.visitor_id}
-                                    title={!visitor.visitor_id ? 'Visitor ID not available' : `Remove ${visitor.email || visitor.visitor_email || 'this visitor'} from blacklist`}
-                                    style={{
-                                      backgroundColor: '#4caf50',
-                                      color: 'white',
-                                      border: 'none',
-                                      padding: '6px 12px',
-                                      borderRadius: '4px',
-                                      cursor: visitor.visitor_id ? 'pointer' : 'not-allowed',
-                                      fontSize: '12px',
-                                      opacity: visitor.visitor_id ? 1 : 0.6
-                                    }}
-                                  >
-                                    Remove from Blacklist
-                                  </button>
+                                  <span style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px',
+                                    fontWeight: 'bold',
+                                    backgroundColor: visit.check_out_time ? '#e8f5e8' : 
+                                                   visit.check_in_time ? '#fff3cd' : '#f8d7da',
+                                    color: visit.check_out_time ? '#2d5a2d' : 
+                                           visit.check_in_time ? '#856404' : '#721c24'
+                                  }}>
+                                    {visit.check_out_time ? '✅ Completed' : 
+                                     visit.check_in_time ? '⏳ In Progress' : '📅 Pending'}
+                                  </span>
                                 </td>
                               </tr>
                             ))}
@@ -6721,22 +8171,1418 @@ const formatDuration = (minutes) => {
                         </table>
                       </div>
                     </div>
+                    );
+                  })()}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  padding: '15px', 
+                  borderTop: '1px solid #ddd', 
+                  display: 'flex', 
+                  justifyContent: 'flex-end', 
+                  gap: '10px' 
+                }}>
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={() => setShowTotalVisitorsModal(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Checked-In Visitors Modal */}
+          {showCheckedInVisitorsModal && (
+            <div className="modal-overlay" onClick={() => setShowCheckedInVisitorsModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '95%', maxHeight: '95%' }}>
+                <div className="modal-header">
+                  <h3>✅ Checked-In Visitors</h3>
+                  <button className="modal-close" onClick={() => setShowCheckedInVisitorsModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                  {loading ? (
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                      <p>Loading checked-in visitors...</p>
+                    </div>
+                  ) : (
+                    (() => {
+                      // More inclusive filtering for checked-in visitors
+                      const checkedInVisitors = [...masterVisitsData, ...masterPreRegistrationsData].filter(visitor => {
+                        const isCheckedIn = visitor.check_in_time && !visitor.check_out_time;
+                        return isCheckedIn;
+                      });
+                      
+                      const checkedInFromRegular = masterVisitsData.filter(visitor => 
+                        visitor.check_in_time && !visitor.check_out_time
+                      ).length;
+                      
+                      const checkedInFromPreReg = masterPreRegistrationsData.filter(visitor => 
+                        visitor.check_in_time && !visitor.check_out_time
+                      ).length;
+
+                      if (checkedInVisitors.length === 0) {
+                        return (
+                          <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                            <div style={{ fontSize: '48px', marginBottom: '20px' }}>✅</div>
+                            <h4 style={{ color: '#333', marginBottom: '10px' }}>No Checked-In Visitors</h4>
+                            <p>All visitors have either checked out or are pending check-in.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div>
+                          {/* Enhanced Statistics */}
+                          <div style={{ 
+                            marginBottom: '20px', 
+                            padding: '15px', 
+                            backgroundColor: '#f8f9fa', 
+                            borderRadius: '8px',
+                            border: '1px solid #e9ecef'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                              <h4 style={{ margin: 0, color: '#333' }}>📊 Checked-In Statistics</h4>
+                              <span style={{ 
+                                background: '#28a745', 
+                                color: 'white', 
+                                padding: '4px 12px', 
+                                borderRadius: '12px', 
+                                fontSize: '14px', 
+                                fontWeight: 'bold' 
+                              }}>
+                                {checkedInVisitors.length} Currently Checked-In
+                              </span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#007bff' }}>{checkedInFromRegular}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Walk-in Visitors</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#28a745' }}>{checkedInFromPreReg}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Pre-registered</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#ffc107' }}>
+                                  {checkedInVisitors.filter(v => {
+                                    const checkInTime = new Date(v.check_in_time);
+                                    const now = new Date();
+                                    const diffMinutes = (now - checkInTime) / (1000 * 60);
+                                    return diffMinutes > 60;
+                                  }).length}
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Staying &gt; 1 Hour</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <p style={{ margin: 0, color: '#666' }}>
+                              Showing {Math.min(checkedInVisitors.length, visitorsPerPage)} of {checkedInVisitors.length} checked-in visitors
+                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <button 
+                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                disabled={currentPage === 1}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #28a745',
+                                  backgroundColor: currentPage === 1 ? '#f5f5f5' : '#28a745',
+                                  color: currentPage === 1 ? '#999' : 'white',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ← Previous
+                              </button>
+                              <span style={{ fontSize: '14px', color: '#666' }}>
+                                Page {currentPage} of {Math.ceil(checkedInVisitors.length / visitorsPerPage)}
+                              </span>
+                              <button 
+                                onClick={() => setCurrentPage(Math.min(Math.ceil(checkedInVisitors.length / visitorsPerPage), currentPage + 1))}
+                                disabled={currentPage === Math.ceil(checkedInVisitors.length / visitorsPerPage)}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #28a745',
+                                  backgroundColor: currentPage === Math.ceil(checkedInVisitors.length / visitorsPerPage) ? '#f5f5f5' : '#28a745',
+                                  color: currentPage === Math.ceil(checkedInVisitors.length / visitorsPerPage) ? '#999' : 'white',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === Math.ceil(checkedInVisitors.length / visitorsPerPage) ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                Next →
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #ddd', backgroundColor: 'white' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: '#28a745', color: 'white' }}>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Visitor Details</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Type</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Company</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Purpose</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Check-in Time</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Duration</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {checkedInVisitors
+                                  .slice((currentPage - 1) * visitorsPerPage, currentPage * visitorsPerPage)
+                                  .map((visitor, index) => {
+                                    const isBlacklisted = masterBlacklistedData.some(b => 
+                                      b.name?.toLowerCase() === visitor.visitor_name?.toLowerCase() ||
+                                      b.phone === visitor.visitor_phone ||
+                                      b.email?.toLowerCase() === visitor.visitor_email?.toLowerCase()
+                                    );
+                                    const checkInTime = new Date(visitor.check_in_time);
+                                    const now = new Date();
+                                    const durationMinutes = Math.floor((now - checkInTime) / (1000 * 60));
+                                    const hours = Math.floor(durationMinutes / 60);
+                                    const minutes = durationMinutes % 60;
+                                    const durationText = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+                                    
+                                    return (
+                                      <tr key={index} style={{ 
+                                        borderBottom: '1px solid #eee',
+                                        backgroundColor: isBlacklisted ? '#fff5f5' : (index % 2 === 0 ? '#f8f9fa' : 'white')
+                                      }}>
+                                        <td style={{ padding: '12px' }}>
+                                          <div>
+                                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                                              {visitor.visitor_name}
+                                              {isBlacklisted && (
+                                                <span style={{
+                                                  marginLeft: '8px',
+                                                  padding: '2px 6px',
+                                                  backgroundColor: '#dc3545',
+                                                  color: 'white',
+                                                  borderRadius: '10px',
+                                                  fontSize: '10px',
+                                                  fontWeight: 'bold'
+                                                }}>
+                                                  ⚠️ BLACKLISTED
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#666' }}>{visitor.visitor_phone}</div>
+                                            {visitor.visitor_email && (
+                                              <div style={{ fontSize: '11px', color: '#999' }}>{visitor.visitor_email}</div>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '11px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: visitor.id ? '#e3f2fd' : '#f3e5f5',
+                                            color: visitor.id ? '#1976d2' : '#7b1fa2'
+                                          }}>
+                                            {visitor.id ? '🚶 Walk-in' : '📋 Pre-reg'}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>{visitor.visitor_company || visitor.company || 'N/A'}</td>
+                                        <td style={{ padding: '12px' }}>{visitor.purpose || visitor.reason || 'N/A'}</td>
+                                        <td style={{ padding: '12px' }}>
+                                          <div>
+                                            <div style={{ fontWeight: 'bold' }}>
+                                              {checkInTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#666' }}>
+                                              {checkInTime.toLocaleDateString()}
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            color: durationMinutes > 60 ? '#ff6b35' : '#28a745',
+                                            fontWeight: 'bold',
+                                            fontSize: '12px'
+                                          }}>
+                                            {durationText}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '12px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: '#d4edda',
+                                            color: '#155724'
+                                          }}>
+                                            ✅ Checked-In
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
                 
                 <div className="modal-footer" style={{ 
                   padding: '15px', 
-                  borderTop: '1px solid #eee', 
-                  backgroundColor: '#f9f9f9', 
-                  textAlign: 'right' 
+                  borderTop: '1px solid #ddd', 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  backgroundColor: '#f8f9fa'
                 }}>
+                  <div style={{ fontSize: '14px', color: '#666' }}>
+                    ✅ These visitors are currently on the premises
+                  </div>
                   <button 
-                    onClick={() => setShowBlacklistedModal(false)}
+                    className="btn btn-secondary"
+                    onClick={() => setShowCheckedInVisitorsModal(false)}
                     style={{
-                      backgroundColor: '#666',
+                      padding: '8px 16px',
+                      backgroundColor: '#6c757d',
                       color: 'white',
                       border: 'none',
-                      padding: '10px 20px',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Pending Visitors Modal */}
+          {showPendingVisitorsModal && (
+            <div className="modal-overlay" onClick={() => setShowPendingVisitorsModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '95%', maxHeight: '95%' }}>
+                <div className="modal-header">
+                  <h3>⏳ Pending Visitors</h3>
+                  <button className="modal-close" onClick={() => setShowPendingVisitorsModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                  {loading ? (
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                      <p>Loading pending visitors...</p>
+                    </div>
+                  ) : (
+                    (() => {
+                      const pendingVisitors = [...masterVisitsData, ...masterPreRegistrationsData].filter(visitor => {
+                        const isPending = !visitor.check_in_time;
+                        const visitDate = new Date(visitor.visit_date || visitor.created_at);
+                        const today = new Date();
+                        const isToday = visitDate.toDateString() === today.toDateString();
+                        return isPending && isToday;
+                      });
+                      
+                      const pendingFromRegular = masterVisitsData.filter(visitor => 
+                        !visitor.check_in_time &&
+                        new Date(visitor.visit_date || visitor.created_at).toDateString() === new Date().toDateString()
+                      ).length;
+                      
+                      const pendingFromPreReg = masterPreRegistrationsData.filter(visitor => 
+                        !visitor.check_in_time &&
+                        new Date(visitor.visit_date).toDateString() === new Date().toDateString()
+                      ).length;
+
+                      const overduePending = pendingVisitors.filter(visitor => {
+                        const visitDate = new Date(visitor.visit_date || visitor.created_at);
+                        const now = new Date();
+                        return visitDate < now;
+                      }).length;
+
+                      if (pendingVisitors.length === 0) {
+                        return (
+                          <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                            <div style={{ fontSize: '48px', marginBottom: '20px' }}>⏳</div>
+                            <h4 style={{ color: '#333', marginBottom: '10px' }}>No Pending Visitors</h4>
+                            <p>All visitors have either checked in or are scheduled for future dates.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div>
+                          {/* Enhanced Statistics */}
+                          <div style={{ 
+                            marginBottom: '20px', 
+                            padding: '15px', 
+                            backgroundColor: '#f8f9fa', 
+                            borderRadius: '8px',
+                            border: '1px solid #e9ecef'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                              <h4 style={{ margin: 0, color: '#333' }}>📊 Pending Statistics</h4>
+                              <span style={{ 
+                                background: '#ffc107', 
+                                color: '#212529', 
+                                padding: '4px 12px', 
+                                borderRadius: '12px', 
+                                fontSize: '14px', 
+                                fontWeight: 'bold' 
+                              }}>
+                                {pendingVisitors.length} Awaiting Check-in
+                              </span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#007bff' }}>{pendingFromRegular}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Walk-in Pending</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#28a745' }}>{pendingFromPreReg}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Pre-registered</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#dc3545' }}>{overduePending}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Overdue</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <p style={{ margin: 0, color: '#666' }}>
+                              Showing {Math.min(pendingVisitors.length, visitorsPerPage)} of {pendingVisitors.length} pending visitors
+                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <button 
+                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                disabled={currentPage === 1}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #ffc107',
+                                  backgroundColor: currentPage === 1 ? '#f5f5f5' : '#ffc107',
+                                  color: currentPage === 1 ? '#999' : '#212529',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ← Previous
+                              </button>
+                              <span style={{ fontSize: '14px', color: '#666' }}>
+                                Page {currentPage} of {Math.ceil(pendingVisitors.length / visitorsPerPage)}
+                              </span>
+                              <button 
+                                onClick={() => setCurrentPage(Math.min(Math.ceil(pendingVisitors.length / visitorsPerPage), currentPage + 1))}
+                                disabled={currentPage === Math.ceil(pendingVisitors.length / visitorsPerPage)}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #ffc107',
+                                  backgroundColor: currentPage === Math.ceil(pendingVisitors.length / visitorsPerPage) ? '#f5f5f5' : '#ffc107',
+                                  color: currentPage === Math.ceil(pendingVisitors.length / visitorsPerPage) ? '#999' : '#212529',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === Math.ceil(pendingVisitors.length / visitorsPerPage) ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                Next →
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #ddd', backgroundColor: 'white' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: '#ffc107', color: '#212529' }}>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Visitor Details</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Type</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Company</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Purpose</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Expected Time</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Priority</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {pendingVisitors
+                                  .slice((currentPage - 1) * visitorsPerPage, currentPage * visitorsPerPage)
+                                  .map((visitor, index) => {
+                                    const isBlacklisted = masterBlacklistedData.some(b => 
+                                      b.name?.toLowerCase() === visitor.visitor_name?.toLowerCase() ||
+                                      b.phone === visitor.visitor_phone ||
+                                      b.email?.toLowerCase() === visitor.visitor_email?.toLowerCase()
+                                    );
+                                    const visitDate = new Date(visitor.visit_date || visitor.created_at);
+                                    const now = new Date();
+                                    const isOverdue = visitDate < now;
+                                    
+                                    return (
+                                      <tr key={index} style={{ 
+                                        borderBottom: '1px solid #eee',
+                                        backgroundColor: isBlacklisted ? '#fff5f5' : (isOverdue ? '#fff3cd' : (index % 2 === 0 ? '#f8f9fa' : 'white'))
+                                      }}>
+                                        <td style={{ padding: '12px' }}>
+                                          <div>
+                                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                                              {visitor.visitor_name}
+                                              {isBlacklisted && (
+                                                <span style={{
+                                                  marginLeft: '8px',
+                                                  padding: '2px 6px',
+                                                  backgroundColor: '#dc3545',
+                                                  color: 'white',
+                                                  borderRadius: '10px',
+                                                  fontSize: '10px',
+                                                  fontWeight: 'bold'
+                                                }}>
+                                                  ⚠️ BLACKLISTED
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#666' }}>{visitor.visitor_phone}</div>
+                                            {visitor.visitor_email && (
+                                              <div style={{ fontSize: '11px', color: '#999' }}>{visitor.visitor_email}</div>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '11px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: visitor.id ? '#e3f2fd' : '#f3e5f5',
+                                            color: visitor.id ? '#1976d2' : '#7b1fa2'
+                                          }}>
+                                            {visitor.id ? '🚶 Walk-in' : '📋 Pre-reg'}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>{visitor.visitor_company || visitor.company || 'N/A'}</td>
+                                        <td style={{ padding: '12px' }}>{visitor.purpose || visitor.reason || 'N/A'}</td>
+                                        <td style={{ padding: '12px' }}>
+                                          <div>
+                                            <div style={{ fontWeight: 'bold' }}>
+                                              {visitDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#666' }}>
+                                              {visitDate.toLocaleDateString()}
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '11px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: isOverdue ? '#f8d7da' : '#d1ecf1',
+                                            color: isOverdue ? '#721c24' : '#0c5460'
+                                          }}>
+                                            {isOverdue ? '� Overdue' : '🟡 On Time'}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '12px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: '#fff3cd',
+                                            color: '#856404'
+                                          }}>
+                                            ⏳ Pending
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  padding: '15px', 
+                  borderTop: '1px solid #ddd', 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  backgroundColor: '#f8f9fa'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#666' }}>
+                    ⏳ Visitors awaiting check-in today
+                  </div>
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={() => setShowPendingVisitorsModal(false)}
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Expected Visitors Modal */}
+          {showExpectedVisitorsModal && (
+            <div className="modal-overlay" onClick={() => setShowExpectedVisitorsModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '95%', maxHeight: '95%' }}>
+                <div className="modal-header">
+                  <h3>📅 Expected Visitors</h3>
+                  <button className="modal-close" onClick={() => setShowExpectedVisitorsModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                  {loading ? (
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                      <p>Loading expected visitors...</p>
+                    </div>
+                  ) : (
+                    (() => {
+                      const expectedVisitors = [...masterVisitsData, ...masterPreRegistrationsData].filter(visitor => {
+                        const visitDate = new Date(visitor.visit_date || visitor.created_at);
+                        const today = new Date();
+                        const isFuture = visitDate > today;
+                        return isFuture && !visitor.check_in_time;
+                      });
+                      
+                      const expectedFromRegular = masterVisitsData.filter(visitor => {
+                        const visitDate = new Date(visitor.visit_date || visitor.created_at);
+                        return visitDate > new Date() && !visitor.check_in_time;
+                      }).length;
+                      
+                      const expectedFromPreReg = masterPreRegistrationsData.filter(visitor => {
+                        const visitDate = new Date(visitor.visit_date);
+                        return visitDate > new Date() && !visitor.check_in_time;
+                      }).length;
+
+                      const tomorrowExpected = expectedVisitors.filter(visitor => {
+                        const visitDate = new Date(visitor.visit_date || visitor.created_at);
+                        const tomorrow = new Date();
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        return visitDate.toDateString() === tomorrow.toDateString();
+                      }).length;
+
+                      if (expectedVisitors.length === 0) {
+                        return (
+                          <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                            <div style={{ fontSize: '48px', marginBottom: '20px' }}>📅</div>
+                            <h4 style={{ color: '#333', marginBottom: '10px' }}>No Expected Visitors</h4>
+                            <p>No visitors scheduled for future dates.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div>
+                          {/* Enhanced Statistics */}
+                          <div style={{ 
+                            marginBottom: '20px', 
+                            padding: '15px', 
+                            backgroundColor: '#f8f9fa', 
+                            borderRadius: '8px',
+                            border: '1px solid #e9ecef'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                              <h4 style={{ margin: 0, color: '#333' }}>📊 Expected Visitors Statistics</h4>
+                              <span style={{ 
+                                background: '#17a2b8', 
+                                color: 'white', 
+                                padding: '4px 12px', 
+                                borderRadius: '12px', 
+                                fontSize: '14px', 
+                                fontWeight: 'bold' 
+                              }}>
+                                {expectedVisitors.length} Future Visits
+                              </span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#007bff' }}>{expectedFromRegular}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Walk-in Expected</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#28a745' }}>{expectedFromPreReg}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Pre-registered</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fd7e14' }}>{tomorrowExpected}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Tomorrow</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <p style={{ margin: 0, color: '#666' }}>
+                              Showing {Math.min(expectedVisitors.length, visitorsPerPage)} of {expectedVisitors.length} expected visitors
+                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <button 
+                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                disabled={currentPage === 1}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #17a2b8',
+                                  backgroundColor: currentPage === 1 ? '#f5f5f5' : '#17a2b8',
+                                  color: currentPage === 1 ? '#999' : 'white',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ← Previous
+                              </button>
+                              <span style={{ fontSize: '14px', color: '#666' }}>
+                                Page {currentPage} of {Math.ceil(expectedVisitors.length / visitorsPerPage)}
+                              </span>
+                              <button 
+                                onClick={() => setCurrentPage(Math.min(Math.ceil(expectedVisitors.length / visitorsPerPage), currentPage + 1))}
+                                disabled={currentPage === Math.ceil(expectedVisitors.length / visitorsPerPage)}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #17a2b8',
+                                  backgroundColor: currentPage === Math.ceil(expectedVisitors.length / visitorsPerPage) ? '#f5f5f5' : '#17a2b8',
+                                  color: currentPage === Math.ceil(expectedVisitors.length / visitorsPerPage) ? '#999' : 'white',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === Math.ceil(expectedVisitors.length / visitorsPerPage) ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                Next →
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #ddd', backgroundColor: 'white' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: '#17a2b8', color: 'white' }}>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Visitor Details</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Type</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Company</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Purpose</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Expected Date</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Days Until</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {expectedVisitors
+                                  .slice((currentPage - 1) * visitorsPerPage, currentPage * visitorsPerPage)
+                                  .map((visitor, index) => {
+                                    const isBlacklisted = masterBlacklistedData.some(b => 
+                                      b.name?.toLowerCase() === visitor.visitor_name?.toLowerCase() ||
+                                      b.phone === visitor.visitor_phone ||
+                                      b.email?.toLowerCase() === visitor.visitor_email?.toLowerCase()
+                                    );
+                                    const visitDate = new Date(visitor.visit_date || visitor.created_at);
+                                    const today = new Date();
+                                    const diffTime = visitDate - today;
+                                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                                    
+                                    return (
+                                      <tr key={index} style={{ 
+                                        borderBottom: '1px solid #eee',
+                                        backgroundColor: isBlacklisted ? '#fff5f5' : (index % 2 === 0 ? '#f8f9fa' : 'white')
+                                      }}>
+                                        <td style={{ padding: '12px' }}>
+                                          <div>
+                                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                                              {visitor.visitor_name}
+                                              {isBlacklisted && (
+                                                <span style={{
+                                                  marginLeft: '8px',
+                                                  padding: '2px 6px',
+                                                  backgroundColor: '#dc3545',
+                                                  color: 'white',
+                                                  borderRadius: '10px',
+                                                  fontSize: '10px',
+                                                  fontWeight: 'bold'
+                                                }}>
+                                                  ⚠️ BLACKLISTED
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#666' }}>{visitor.visitor_phone}</div>
+                                            {visitor.visitor_email && (
+                                              <div style={{ fontSize: '11px', color: '#999' }}>{visitor.visitor_email}</div>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '11px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: visitor.id ? '#e3f2fd' : '#f3e5f5',
+                                            color: visitor.id ? '#1976d2' : '#7b1fa2'
+                                          }}>
+                                            {visitor.id ? '🚶 Walk-in' : '📋 Pre-reg'}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>{visitor.visitor_company || visitor.company || 'N/A'}</td>
+                                        <td style={{ padding: '12px' }}>{visitor.purpose || visitor.reason || 'N/A'}</td>
+                                        <td style={{ padding: '12px' }}>
+                                          <div>
+                                            <div style={{ fontWeight: 'bold' }}>
+                                              {visitDate.toLocaleDateString()}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#666' }}>
+                                              {visitDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '11px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: diffDays === 1 ? '#fff3cd' : diffDays <= 7 ? '#d1ecf1' : '#e2e3e5',
+                                            color: diffDays === 1 ? '#856404' : diffDays <= 7 ? '#0c5460' : '#6c757d'
+                                          }}>
+                                            {diffDays === 1 ? '📅 Tomorrow' : `${diffDays} days`}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '12px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: '#d1ecf1',
+                                            color: '#0c5460'
+                                          }}>
+                                            📅 Expected
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  padding: '15px', 
+                  borderTop: '1px solid #ddd', 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  backgroundColor: '#f8f9fa'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#666' }}>
+                    📅 Visitors scheduled for future dates
+                  </div>
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={() => setShowExpectedVisitorsModal(false)}
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Checked-Out Visitors Modal */}
+          {showCheckedOutVisitorsModal && (
+            <div className="modal-overlay" onClick={() => setShowCheckedOutVisitorsModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '95%', maxHeight: '95%' }}>
+                <div className="modal-header">
+                  <h3>❌ Checked-Out Visitors</h3>
+                  <button className="modal-close" onClick={() => setShowCheckedOutVisitorsModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                  {loading ? (
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                      <p>Loading checked-out visitors...</p>
+                    </div>
+                  ) : (
+                    (() => {
+                      const checkedOutVisitors = [...masterVisitsData, ...masterPreRegistrationsData].filter(visitor => {
+                        const isCheckedOut = visitor.check_in_time && visitor.check_out_time;
+                        const isToday = new Date(visitor.check_out_time).toDateString() === new Date().toDateString();
+                        return isCheckedOut && isToday;
+                      });
+                      
+                      const checkedOutFromRegular = masterVisitsData.filter(visitor => 
+                        visitor.check_in_time && visitor.check_out_time &&
+                        new Date(visitor.check_out_time).toDateString() === new Date().toDateString()
+                      ).length;
+                      
+                      const checkedOutFromPreReg = masterPreRegistrationsData.filter(visitor => 
+                        visitor.check_in_time && visitor.check_out_time &&
+                        new Date(visitor.check_out_time).toDateString() === new Date().toDateString()
+                      ).length;
+
+                      const averageVisitDuration = checkedOutVisitors.reduce((total, visitor) => {
+                        const checkIn = new Date(visitor.check_in_time);
+                        const checkOut = new Date(visitor.check_out_time);
+                        const duration = (checkOut - checkIn) / (1000 * 60);
+                        return total + duration;
+                      }, 0) / (checkedOutVisitors.length || 1);
+
+                      if (checkedOutVisitors.length === 0) {
+                        return (
+                          <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                            <div style={{ fontSize: '48px', marginBottom: '20px' }}>❌</div>
+                            <h4 style={{ color: '#333', marginBottom: '10px' }}>No Checked-Out Visitors</h4>
+                            <p>No visitors have completed their visits today.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div>
+                          {/* Enhanced Statistics */}
+                          <div style={{ 
+                            marginBottom: '20px', 
+                            padding: '15px', 
+                            backgroundColor: '#f8f9fa', 
+                            borderRadius: '8px',
+                            border: '1px solid #e9ecef'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                              <h4 style={{ margin: 0, color: '#333' }}>📊 Completion Statistics</h4>
+                              <span style={{ 
+                                background: '#6c757d', 
+                                color: 'white', 
+                                padding: '4px 12px', 
+                                borderRadius: '12px', 
+                                fontSize: '14px', 
+                                fontWeight: 'bold' 
+                              }}>
+                                {checkedOutVisitors.length} Completed Visits
+                              </span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#007bff' }}>{checkedOutFromRegular}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Walk-in Visitors</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#28a745' }}>{checkedOutFromPreReg}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Pre-registered</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #dee2e6' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#17a2b8' }}>
+                                  {Math.round(averageVisitDuration)}m
+                                </div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Avg. Duration</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <p style={{ margin: 0, color: '#666' }}>
+                              Showing {Math.min(checkedOutVisitors.length, visitorsPerPage)} of {checkedOutVisitors.length} checked-out visitors
+                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <button 
+                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                disabled={currentPage === 1}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #6c757d',
+                                  backgroundColor: currentPage === 1 ? '#f5f5f5' : '#6c757d',
+                                  color: currentPage === 1 ? '#999' : 'white',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ← Previous
+                              </button>
+                              <span style={{ fontSize: '14px', color: '#666' }}>
+                                Page {currentPage} of {Math.ceil(checkedOutVisitors.length / visitorsPerPage)}
+                              </span>
+                              <button 
+                                onClick={() => setCurrentPage(Math.min(Math.ceil(checkedOutVisitors.length / visitorsPerPage), currentPage + 1))}
+                                disabled={currentPage === Math.ceil(checkedOutVisitors.length / visitorsPerPage)}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #6c757d',
+                                  backgroundColor: currentPage === Math.ceil(checkedOutVisitors.length / visitorsPerPage) ? '#f5f5f5' : '#6c757d',
+                                  color: currentPage === Math.ceil(checkedOutVisitors.length / visitorsPerPage) ? '#999' : 'white',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === Math.ceil(checkedOutVisitors.length / visitorsPerPage) ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                Next →
+                              </button>
+                            </div>
+                          </div>
+                          
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #ddd', backgroundColor: 'white' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: '#6c757d', color: 'white' }}>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Visitor Details</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Type</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Company</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Purpose</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Check-out Time</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Visit Duration</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {checkedOutVisitors
+                                  .slice((currentPage - 1) * visitorsPerPage, currentPage * visitorsPerPage)
+                                  .map((visitor, index) => {
+                                    const isBlacklisted = masterBlacklistedData.some(b => 
+                                      b.name?.toLowerCase() === visitor.visitor_name?.toLowerCase() ||
+                                      b.phone === visitor.visitor_phone ||
+                                      b.email?.toLowerCase() === visitor.visitor_email?.toLowerCase()
+                                    );
+                                    const checkInTime = new Date(visitor.check_in_time);
+                                    const checkOutTime = new Date(visitor.check_out_time);
+                                    const durationMinutes = Math.floor((checkOutTime - checkInTime) / (1000 * 60));
+                                    const hours = Math.floor(durationMinutes / 60);
+                                    const minutes = durationMinutes % 60;
+                                    const durationText = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+                                    
+                                    return (
+                                      <tr key={index} style={{ 
+                                        borderBottom: '1px solid #eee',
+                                        backgroundColor: isBlacklisted ? '#fff5f5' : (index % 2 === 0 ? '#f8f9fa' : 'white')
+                                      }}>
+                                        <td style={{ padding: '12px' }}>
+                                          <div>
+                                            <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>
+                                              {visitor.visitor_name}
+                                              {isBlacklisted && (
+                                                <span style={{
+                                                  marginLeft: '8px',
+                                                  padding: '2px 6px',
+                                                  backgroundColor: '#dc3545',
+                                                  color: 'white',
+                                                  borderRadius: '10px',
+                                                  fontSize: '10px',
+                                                  fontWeight: 'bold'
+                                                }}>
+                                                  ⚠️ BLACKLISTED
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div style={{ fontSize: '12px', color: '#666' }}>{visitor.visitor_phone}</div>
+                                            {visitor.visitor_email && (
+                                              <div style={{ fontSize: '11px', color: '#999' }}>{visitor.visitor_email}</div>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '11px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: visitor.id ? '#e3f2fd' : '#f3e5f5',
+                                            color: visitor.id ? '#1976d2' : '#7b1fa2'
+                                          }}>
+                                            {visitor.id ? '🚶 Walk-in' : '📋 Pre-reg'}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>{visitor.visitor_company || visitor.company || 'N/A'}</td>
+                                        <td style={{ padding: '12px' }}>{visitor.purpose || visitor.reason || 'N/A'}</td>
+                                        <td style={{ padding: '12px' }}>
+                                          <div>
+                                            <div style={{ fontWeight: 'bold' }}>
+                                              {checkOutTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#666' }}>
+                                              {checkOutTime.toLocaleDateString()}
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            color: durationMinutes > 180 ? '#fd7e14' : durationMinutes > 60 ? '#ffc107' : '#28a745',
+                                            fontWeight: 'bold',
+                                            fontSize: '12px'
+                                          }}>
+                                            {durationText}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '12px' }}>
+                                          <span style={{
+                                            padding: '4px 8px',
+                                            borderRadius: '12px',
+                                            fontSize: '12px',
+                                            fontWeight: 'bold',
+                                            backgroundColor: '#d4edda',
+                                            color: '#155724'
+                                          }}>
+                                            ✅ Completed
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  padding: '15px', 
+                  borderTop: '1px solid #ddd', 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  backgroundColor: '#f8f9fa'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#666' }}>
+                    ✅ Visitors who completed their visits today
+                  </div>
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={() => setShowCheckedOutVisitorsModal(false)}
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Blacklisted Visitors Modal */}
+          {showBlacklistedVisitorsModal && (
+            <div className="modal-overlay" onClick={() => setShowBlacklistedVisitorsModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '95%', maxHeight: '95%' }}>
+                <div className="modal-header">
+                  <h3>🚫 Blacklisted Visitors</h3>
+                  <button className="modal-close" onClick={() => setShowBlacklistedVisitorsModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                  {loading ? (
+                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                      <p>Loading blacklisted visitors...</p>
+                    </div>
+                  ) : (
+                    (() => {
+                      const blacklistedVisitors = masterBlacklistedData;
+                      
+                      // Get statistics about blacklisted visitors
+                      const recentlyBlacklisted = blacklistedVisitors.filter(visitor => {
+                        const createdDate = new Date(visitor.created_at || visitor.date_blacklisted);
+                        const weekAgo = new Date();
+                        weekAgo.setDate(weekAgo.getDate() - 7);
+                        return createdDate > weekAgo;
+                      }).length;
+
+                      const withReasons = blacklistedVisitors.filter(visitor => 
+                        visitor.reason_for_blacklist || visitor.blacklist_reason || visitor.reason_to_blacklist
+                      ).length;
+
+                      if (blacklistedVisitors.length === 0) {
+                        return (
+                          <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
+                            <div style={{ fontSize: '48px', marginBottom: '20px' }}>✅</div>
+                            <h4 style={{ color: '#333', marginBottom: '10px' }}>No Blacklisted Visitors</h4>
+                            <p>Your security status is clear.</p>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="blacklisted-visitors-content">
+                          {/* Security Alert Banner */}
+                          <div style={{ 
+                            backgroundColor: '#fff5f5', 
+                            border: '2px solid #f5c6cb', 
+                            borderRadius: '8px', 
+                            padding: '15px', 
+                            marginBottom: '20px' 
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                              <h4 style={{ color: '#721c24', margin: 0 }}>
+                                ⚠️ Security Alert: {blacklistedVisitors.length} Blacklisted Visitor{blacklistedVisitors.length > 1 ? 's' : ''}
+                              </h4>
+                              <span style={{ 
+                                background: '#dc3545', 
+                                color: 'white', 
+                                padding: '4px 12px', 
+                                borderRadius: '12px', 
+                                fontSize: '14px', 
+                                fontWeight: 'bold' 
+                              }}>
+                                🚫 HIGH SECURITY
+                              </span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #f5c6cb' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#dc3545' }}>{blacklistedVisitors.length}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Total Blacklisted</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #f5c6cb' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fd7e14' }}>{recentlyBlacklisted}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>Recent (7 days)</div>
+                              </div>
+                              <div style={{ textAlign: 'center', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #f5c6cb' }}>
+                                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#6c757d' }}>{withReasons}</div>
+                                <div style={{ fontSize: '12px', color: '#666' }}>With Reasons</div>
+                              </div>
+                            </div>
+                            <p style={{ margin: '10px 0 0 0', fontSize: '14px', color: '#666' }}>
+                              These visitors have been flagged and restricted from accessing the premises.
+                            </p>
+                          </div>
+
+                          <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <p style={{ margin: 0, color: '#666' }}>
+                              Showing {Math.min(blacklistedVisitors.length, visitorsPerPage)} of {blacklistedVisitors.length} blacklisted visitors
+                            </p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <button 
+                                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                                disabled={currentPage === 1}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #dc3545',
+                                  backgroundColor: currentPage === 1 ? '#f5f5f5' : '#dc3545',
+                                  color: currentPage === 1 ? '#999' : 'white',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                ← Previous
+                              </button>
+                              <span style={{ fontSize: '14px', color: '#666' }}>
+                                Page {currentPage} of {Math.ceil(blacklistedVisitors.length / visitorsPerPage)}
+                              </span>
+                              <button 
+                                onClick={() => setCurrentPage(Math.min(Math.ceil(blacklistedVisitors.length / visitorsPerPage), currentPage + 1))}
+                                disabled={currentPage === Math.ceil(blacklistedVisitors.length / visitorsPerPage)}
+                                style={{
+                                  padding: '6px 12px',
+                                  border: '1px solid #dc3545',
+                                  backgroundColor: currentPage === Math.ceil(blacklistedVisitors.length / visitorsPerPage) ? '#f5f5f5' : '#dc3545',
+                                  color: currentPage === Math.ceil(blacklistedVisitors.length / visitorsPerPage) ? '#999' : 'white',
+                                  borderRadius: '4px',
+                                  cursor: currentPage === Math.ceil(blacklistedVisitors.length / visitorsPerPage) ? 'not-allowed' : 'pointer',
+                                  fontSize: '14px'
+                                }}
+                              >
+                                Next →
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="blacklisted-table-wrapper" style={{ overflowX: 'auto' }}>
+                            <table className="blacklisted-visitors-table" style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', border: '1px solid #ddd' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: '#dc3545', color: 'white' }}>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Photo</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Visitor Details</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Contact Info</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Host Met</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Last Visit</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Blacklist Reason</th>
+                                  <th style={{ padding: '12px', textAlign: 'left', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {blacklistedVisitors
+                                  .slice((currentPage - 1) * visitorsPerPage, currentPage * visitorsPerPage)
+                                  .map((visitor, index) => (
+                                  <tr key={visitor.visitor_id || visitor.id || index} style={{ 
+                                    borderBottom: '1px solid #eee',
+                                    backgroundColor: '#fff5f5'
+                                  }}>
+                                    <td style={{ padding: '12px' }}>
+                                      {visitor.visitorPhoto || visitor.photo || visitor.picture ? (
+                                        <img 
+                                          src={visitor.visitorPhoto || visitor.photo || visitor.picture} 
+                                          alt="Visitor" 
+                                          style={{ 
+                                            width: '50px', 
+                                            height: '50px', 
+                                            borderRadius: '50%', 
+                                            objectFit: 'cover',
+                                            border: '3px solid #dc3545'
+                                          }} 
+                                        />
+                                      ) : (
+                                        <div style={{ 
+                                          width: '50px', 
+                                          height: '50px', 
+                                          borderRadius: '50%', 
+                                          backgroundColor: '#fff5f5', 
+                                          border: '3px solid #dc3545',
+                                          display: 'flex', 
+                                          alignItems: 'center', 
+                                          justifyContent: 'center',
+                                          fontSize: '20px'
+                                        }}>
+                                          👤
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td style={{ padding: '12px' }}>
+                                      <div>
+                                        <div style={{ fontWeight: 'bold', color: '#dc3545', marginBottom: '4px' }}>
+                                          {visitor.visitor_name || visitor.visitorName || visitor.person_name || visitor.name || 'N/A'}
+                                        </div>
+                                        <div style={{ 
+                                          fontSize: '11px', 
+                                          backgroundColor: '#dc3545', 
+                                          color: 'white', 
+                                          padding: '2px 6px', 
+                                          borderRadius: '10px', 
+                                          display: 'inline-block'
+                                        }}>
+                                          🚫 BLACKLISTED
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '12px' }}>
+                                      <div>
+                                        <div style={{ fontSize: '13px', marginBottom: '2px' }}>
+                                          📧 {visitor.visitor_email || visitor.visitorEmail || visitor.email || 'N/A'}
+                                        </div>
+                                        <div style={{ fontSize: '13px' }}>
+                                          📞 {visitor.visitor_phone || visitor.visitorPhone || visitor.phone || 'N/A'}
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '12px' }}>
+                                      {visitor.host_name || visitor.hostName || visitor.person_to_meet || 'N/A'}
+                                    </td>
+                                    <td style={{ padding: '12px' }}>
+                                      <div>
+                                        {visitor.visit_date || visitor.check_in_time ? (
+                                          <>
+                                            <div style={{ fontWeight: 'bold' }}>
+                                              {new Date(visitor.visit_date || visitor.check_in_time).toLocaleDateString()}
+                                            </div>
+                                            <div style={{ fontSize: '11px', color: '#666' }}>
+                                              {new Date(visitor.visit_date || visitor.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                          </>
+                                        ) : (
+                                          'N/A'
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '12px', maxWidth: '250px' }}>
+                                      <div style={{ 
+                                        fontSize: '12px', 
+                                        color: '#dc3545',
+                                        backgroundColor: '#fff5f5',
+                                        padding: '8px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #f5c6cb',
+                                        wordWrap: 'break-word'
+                                      }}>
+                                        {visitor.blacklist_reason || visitor.reason_for_blacklist || visitor.reason_to_blacklist || 'No reason specified'}
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '12px' }}>
+                                      <button
+                                        onClick={() => {
+                                          if (visitor.visitor_id) {
+                                            handleRemoveFromBlacklist(visitor.visitor_id);
+                                            setShowBlacklistedVisitorsModal(false);
+                                          } else {
+                                            setError('Cannot unblacklist: Visitor ID not found');
+                                          }
+                                        }}
+                                        className="unblacklist-btn"
+                                        disabled={!visitor.visitor_id}
+                                        title={!visitor.visitor_id ? 'Visitor ID not available' : `Remove ${visitor.email || visitor.visitor_email || 'this visitor'} from blacklist`}
+                                        style={{
+                                          backgroundColor: '#28a745',
+                                          color: 'white',
+                                          border: 'none',
+                                          padding: '6px 12px',
+                                          borderRadius: '4px',
+                                          cursor: visitor.visitor_id ? 'pointer' : 'not-allowed',
+                                          fontSize: '12px',
+                                          opacity: visitor.visitor_id ? 1 : 0.6,
+                                          fontWeight: 'bold'
+                                        }}
+                                      >
+                                        ✅ Remove
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  padding: '15px', 
+                  borderTop: '1px solid #ddd', 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  backgroundColor: '#fff5f5'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#666' }}>
+                    🚫 Restricted visitors requiring security clearance
+                  </div>
+                  <button 
+                    onClick={() => setShowBlacklistedVisitorsModal(false)}
+                    style={{
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      padding: '8px 16px',
                       borderRadius: '4px',
                       cursor: 'pointer'
                     }}
@@ -7495,8 +10341,8 @@ const formatDuration = (minutes) => {
                             >
                               <option value="host">Host</option>
                               <option value="admin">Admin</option>
-                              <option value="security">Security</option>
-                              <option value="receptionist">Receptionist</option>
+                              {/* <option value="security">Security</option>
+                              <option value="receptionist">Receptionist</option> */}
                             </select>
                           </div>
                           <div className="form-group">
@@ -7889,68 +10735,132 @@ const formatDuration = (minutes) => {
             </div>
           )}
 
-          {/* QR Code Modal */}
+          {/* QR Code Modal - Enhanced Design */}
           {showQRModal && selectedVisitor && (
             <div className="modal-overlay" onClick={() => setShowQRModal(false)}>
-              <div className="modal-content qr-modal" onClick={(e) => e.stopPropagation()}>
-                <div className="modal-header">
-                  <h3>QR Code for {selectedVisitor.visitor_name || selectedVisitor.visitorName}</h3>
-                  <button onClick={() => setShowQRModal(false)} className="close-btn">
+              <div className="modal-content qr-modal-enhanced" onClick={(e) => e.stopPropagation()}>
+                <div className="qr-modal-header">
+                  <div className="header-content">
+                    <div className="qr-icon">📱</div>
+                    <div className="header-text">
+                      <h2>QR Code Access</h2>
+                      <p>Scan to check-in instantly</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowQRModal(false)} className="close-btn-enhanced">
                     ×
                   </button>
                 </div>
-                <div className="qr-code-container">
-                  <QRCodeSVG value={selectedVisitor.qr_code || JSON.stringify({
-                    visitorId: selectedVisitor.visitor_id || selectedVisitor.id,
-                    visitorName: selectedVisitor.visitor_name || selectedVisitor.visitorName,
-                    visitDate: selectedVisitor.visit_date || selectedVisitor.check_in_time
-                  })} size={300} />
-                  <div className="qr-info">
-                    <p><strong>Visitor:</strong> {selectedVisitor.visitor_name || selectedVisitor.visitorName}</p>
-                    <p><strong>Host:</strong> {selectedVisitor.host_name || selectedVisitor.hostName}</p>
-                    <p><strong>Date:</strong> {selectedVisitor.visit_date ? new Date(selectedVisitor.visit_date).toLocaleDateString() : 'Invalid Date'}</p>
-                    <p><strong>Time:</strong> {selectedVisitor.visit_time}</p>
-                    <p><strong>Purpose:</strong> {selectedVisitor.purpose}</p>
-                    {selectedVisitor.visitor_company && (
-                      <p><strong>Company:</strong> {selectedVisitor.visitor_company}</p>
-                    )}
+
+                <div className="qr-modal-body">
+                  {/* Visitor Card */}
+                  <div className="visitor-card">
+                    <div className="visitor-avatar">
+                      <span>{(selectedVisitor.visitor_name || selectedVisitor.visitorName || 'V').charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div className="visitor-details">
+                      <h3>{selectedVisitor.visitor_name || selectedVisitor.visitorName}</h3>
+                      <div className="visitor-meta">
+                        <span className="meta-item">
+                          <i>🏢</i> {selectedVisitor.visitor_company || 'N/A'}
+                        </span>
+                        <span className="meta-item">
+                          <i>📅</i> {selectedVisitor.visit_date ? new Date(selectedVisitor.visit_date).toLocaleDateString() : 'Invalid Date'}
+                        </span>
+                        <span className="meta-item">
+                          <i>⏰</i> {selectedVisitor.visit_time || 'N/A'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* QR Code Section */}
+                  <div className="qr-code-section">
+                    <div className="qr-code-wrapper">
+                      <div className="qr-code-frame">
+                        <QRCodeSVG 
+                          className="qr-code-svg"
+                          value={selectedVisitor.qr_code || JSON.stringify({
+                            visitorId: selectedVisitor.visitor_id || selectedVisitor.id,
+                            visitorName: selectedVisitor.visitor_name || selectedVisitor.visitorName,
+                            visitDate: selectedVisitor.visit_date || selectedVisitor.check_in_time
+                          })} 
+                          size={260}
+                          bgColor="#ffffff"
+                          fgColor="#1a365d"
+                          level="H"
+                          includeMargin={true}
+                        />
+                        <div className="qr-overlay-corners">
+                          <div className="corner top-left"></div>
+                          <div className="corner top-right"></div>
+                          <div className="corner bottom-left"></div>
+                          <div className="corner bottom-right"></div>
+                        </div>
+                      </div>
+                      <div className="qr-instructions">
+                        <p>📲 Point your camera at the QR code to scan</p>
+                        <div className="qr-code-id">ID: {selectedVisitor.visitor_id || selectedVisitor.id}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visit Information */}
+                  <div className="visit-info-card">
+                    <h4>� Visit Details</h4>
+                    <div className="info-grid">
+                      <div className="info-item">
+                        <span className="label">Host:</span>
+                        <span className="value">{selectedVisitor.host_name || selectedVisitor.hostName || 'N/A'}</span>
+                      </div>
+                      <div className="info-item">
+                        <span className="label">Purpose:</span>
+                        <span className="value">{selectedVisitor.purpose || 'N/A'}</span>
+                      </div>
+                      <div className="info-item">
+                        <span className="label">Status:</span>
+                        <span className={`value status ${selectedVisitor.status || 'pending'}`}>
+                          {selectedVisitor.status || 'Pending'}
+                        </span>
+                      </div>
+                      <div className="info-item">
+                        <span className="label">Visitors:</span>
+                        <span className="value">{selectedVisitor.number_of_visitors || 1}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Share QR Code Section */}
-                <div className="share-section">
-                  <h4>📤 Share QR Code</h4>
-                  <div className="share-options">
-                    <button onClick={() => shareQRCode('email')} className="share-btn email-btn">
-                      📧 Email
+                {/* Enhanced Action Buttons */}
+                <div className="qr-modal-actions">
+                  <div className="primary-actions">
+                    <button onClick={() => shareQRCode('download')} className="action-btn primary">
+                      <span className="btn-icon">💾</span>
+                      <span className="btn-text">{loading ? 'Downloading...' : 'Download QR'}</span>
                     </button>
-                    <button onClick={() => shareQRCode('sms')} className="share-btn sms-btn">
-                      💬 SMS
+                    <button onClick={() => shareQRCode('copy')} className="action-btn secondary">
+                      <span className="btn-icon">📋</span>
+                      <span className="btn-text">Copy Code</span>
                     </button>
-                    <button onClick={() => shareQRCode('whatsapp')} className="share-btn whatsapp-btn">
-                      📱 WhatsApp
-                    </button>
-                    <button onClick={() => shareQRCode('copy')} className="share-btn copy-btn">
-                      📋 Copy
-                    </button>
-                    <button onClick={() => shareQRCode('download')} className="share-btn download-btn">
-                      💾 Download
-                    </button>
-                    {/* {navigator.share && (
-                      <button onClick={() => shareQRCode('native')} className="share-btn native-btn">
-                        🔗 Share
+                  </div>
+                  
+                  <div className="share-actions">
+                    <span className="share-label">Share via:</span>
+                    <div className="share-buttons">
+                      <button onClick={() => shareQRCode('email')} className="share-btn-mini" title="Email">
+                        �
                       </button>
-                    )} */}
+                      <button onClick={() => shareQRCode('sms')} className="share-btn-mini" title="SMS">
+                        💬
+                      </button>
+                      <button onClick={() => shareQRCode('whatsapp')} className="share-btn-mini" title="WhatsApp">
+                        📱
+                      </button>
+                      <button onClick={() => window.print()} className="share-btn-mini" title="Print">
+                        🖨️
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <div className="modal-actions">
-                  <button onClick={() => window.print()} className="print-btn">
-                    🖨️ Print QR Code
-                  </button>
-                  <button onClick={() => setShowQRModal(false)} className="cancel-btn">
-                    Close
-                  </button>
                 </div>
               </div>
             </div>
@@ -7972,6 +10882,216 @@ const formatDuration = (minutes) => {
                     🖨️ Print Badge
                   </button>
                   <button onClick={() => setShowBadgeModal(false)} className="cancel-btn">
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Security Incidents Modal */}
+          {showSecurityIncidentsModal && (
+            <div className="modal-overlay" onClick={() => setShowSecurityIncidentsModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '95%', maxHeight: '90%' }}>
+                <div className="modal-header">
+                  <h3>🔒 Security Incidents Report</h3>
+                  <button className="modal-close" onClick={() => setShowSecurityIncidentsModal(false)}>×</button>
+                </div>
+                
+                <div className="modal-body" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                  {securityIncidentsData.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: '30px', color: '#666' }}>
+                      <div style={{ fontSize: '48px', marginBottom: '20px' }}>✅</div>
+                      <h4>No Security Incidents Found</h4>
+                      <p>Your facility is currently secure with no active security incidents.</p>
+                    </div>
+                  ) : (
+                    <div className="security-incidents-content">
+                      <div className="incidents-summary" style={{ 
+                        backgroundColor: '#fff3cd', 
+                        border: '1px solid #ffeaa7', 
+                        borderRadius: '8px', 
+                        padding: '15px', 
+                        marginBottom: '20px' 
+                      }}>
+                        <h4 style={{ color: '#856404', margin: '0 0 10px 0' }}>Security Summary</h4>
+                        <div className="summary-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#dc3545' }}>
+                              {securityIncidentsData.filter(incident => incident.severity === 'High').length}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>High Priority</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fd7e14' }}>
+                              {securityIncidentsData.filter(incident => incident.severity === 'Medium').length}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>Medium Priority</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#ffc107' }}>
+                              {securityIncidentsData.filter(incident => incident.severity === 'Low').length}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>Low Priority</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#28a745' }}>
+                              {securityIncidentsData.length}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#666' }}>Total Incidents</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="incidents-list">
+                        {getPaginatedData(securityIncidentsData, currentPage, visitorsPerPage).map((incident, index) => (
+                          <div key={incident.id || index} className="incident-card" style={{ 
+                            border: '1px solid #e9ecef', 
+                            borderRadius: '8px', 
+                            padding: '15px', 
+                            marginBottom: '15px',
+                            borderLeft: `4px solid ${
+                              incident.severity === 'High' ? '#dc3545' : 
+                              incident.severity === 'Medium' ? '#fd7e14' : '#ffc107'
+                            }`
+                          }}>
+                            <div className="incident-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '5px' }}>
+                                  <span className="incident-type" style={{
+                                    backgroundColor: incident.type === 'Blacklisted' ? '#dc3545' : 
+                                                   incident.type === 'Overstay' ? '#fd7e14' : '#6c757d',
+                                    color: 'white',
+                                    padding: '4px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px',
+                                    fontWeight: 'bold'
+                                  }}>
+                                    {incident.type}
+                                  </span>
+                                  <span className="incident-severity" style={{
+                                    backgroundColor: incident.severity === 'High' ? '#dc3545' : 
+                                                   incident.severity === 'Medium' ? '#fd7e14' : '#ffc107',
+                                    color: 'white',
+                                    padding: '4px 8px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px',
+                                    fontWeight: 'bold'
+                                  }}>
+                                    {incident.severity} Priority
+                                  </span>
+                                </div>
+                                <h5 style={{ margin: '0', color: '#212529' }}>{incident.visitor_name || 'Unknown Visitor'}</h5>
+                                <p style={{ margin: '5px 0', color: '#666', fontSize: '14px' }}>{incident.description}</p>
+                              </div>
+                              <div style={{ textAlign: 'right', fontSize: '12px', color: '#666' }}>
+                                <div>{new Date(incident.incident_time).toLocaleDateString()}</div>
+                                <div>{new Date(incident.incident_time).toLocaleTimeString()}</div>
+                              </div>
+                            </div>
+                            
+                            <div className="incident-details" style={{ backgroundColor: '#f8f9fa', padding: '10px', borderRadius: '6px' }}>
+                              <div className="details-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', fontSize: '13px' }}>
+                                {incident.visitor_email && (
+                                  <div>
+                                    <strong>Email:</strong> {incident.visitor_email}
+                                  </div>
+                                )}
+                                {incident.visitor_phone && (
+                                  <div>
+                                    <strong>Phone:</strong> {incident.visitor_phone}
+                                  </div>
+                                )}
+                                {incident.host_name && (
+                                  <div>
+                                    <strong>Host:</strong> {incident.host_name}
+                                  </div>
+                                )}
+                                <div>
+                                  <strong>Source:</strong> {incident.source}
+                                </div>
+                              </div>
+                              <div style={{ marginTop: '8px', padding: '8px', backgroundColor: '#e9ecef', borderRadius: '4px', fontSize: '12px' }}>
+                                <strong>Details:</strong> {incident.details}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Pagination */}
+                      {securityIncidentsData.length > visitorsPerPage && (
+                        <div className="pagination" style={{ 
+                          display: 'flex', 
+                          justifyContent: 'center', 
+                          alignItems: 'center', 
+                          gap: '10px', 
+                          marginTop: '20px',
+                          padding: '15px',
+                          borderTop: '1px solid #e9ecef'
+                        }}>
+                          <button 
+                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                            disabled={currentPage === 1}
+                            style={{
+                              padding: '5px 10px',
+                              backgroundColor: currentPage === 1 ? '#e9ecef' : '#007bff',
+                              color: currentPage === 1 ? '#6c757d' : 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            Previous
+                          </button>
+                          
+                          <span style={{ padding: '0 15px', fontSize: '14px' }}>
+                            Page {currentPage} of {getTotalPages(securityIncidentsData.length, visitorsPerPage)}
+                          </span>
+                          
+                          <button 
+                            onClick={() => setCurrentPage(prev => Math.min(prev + 1, getTotalPages(securityIncidentsData.length, visitorsPerPage)))}
+                            disabled={currentPage === getTotalPages(securityIncidentsData.length, visitorsPerPage)}
+                            style={{
+                              padding: '5px 10px',
+                              backgroundColor: currentPage === getTotalPages(securityIncidentsData.length, visitorsPerPage) ? '#e9ecef' : '#007bff',
+                              color: currentPage === getTotalPages(securityIncidentsData.length, visitorsPerPage) ? '#6c757d' : 'white',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: currentPage === getTotalPages(securityIncidentsData.length, visitorsPerPage) ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            Next
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                <div className="modal-footer" style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  padding: '15px 20px',
+                  borderTop: '1px solid #e9ecef',
+                  backgroundColor: '#f8f9fa'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#666' }}>
+                    Showing {securityIncidentsData.length} security incident{securityIncidentsData.length !== 1 ? 's' : ''}
+                  </div>
+                  <button 
+                    className="btn btn-secondary"
+                    onClick={() => setShowSecurityIncidentsModal(false)}
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
                     Close
                   </button>
                 </div>

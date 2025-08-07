@@ -56,7 +56,7 @@ class GeminiModel:
 
                     {
                         "name": "Full person name",
-                        # "designation": "Job title/position", 
+                        "designation": "Job title/position", 
                         "company": "Company name with any taglines",
                         "email": "Email address",
                         "personal_mobile_number": "Personal/mobile phone",
@@ -75,6 +75,7 @@ class GeminiModel:
                     - For phone numbers: preserve original formatting with area codes
                     - If information is not visible, use "Not Found" as the value
                     - Return only valid JSON, no explanations
+                    - Extract the information sequentially as (Name,Email,Personal Mobile Number ,Company ,Company Number ,Address ,Website, etc)
 
                     Focus on accuracy and completeness of extraction.
                     """

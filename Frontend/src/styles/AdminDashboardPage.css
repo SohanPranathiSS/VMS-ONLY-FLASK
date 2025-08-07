@@ -1462,3 +1462,778 @@
     max-width: calc(100% - 20px) !important;
   }
 }
+
+/* ===============================================
+   ENHANCED QR CODE MODAL STYLES
+   =============================================== */
+
+.qr-modal-enhanced {
+  background: #ffffff;
+  border-radius: 20px;
+  max-width: 550px;
+  width: 90%;
+  max-height: 95vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e2e8f0;
+}
+
+.qr-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 25px 30px 20px;
+  border-bottom: 2px solid #f7fafc;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 20px 20px 0 0;
+  color: white;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.qr-icon {
+  font-size: 32px;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 12px;
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+}
+
+.header-text h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.header-text p {
+  margin: 5px 0 0;
+  font-size: 14px;
+  opacity: 0.9;
+  font-weight: 400;
+}
+
+.close-btn-enhanced {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(10px);
+}
+
+.close-btn-enhanced:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.1);
+}
+
+.qr-modal-body {
+  padding: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+}
+
+/* Visitor Card */
+.visitor-card {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.visitor-avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 24px;
+  font-weight: 700;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.visitor-details h3 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #2d3748;
+}
+
+.visitor-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #4a5568;
+}
+
+.meta-item i {
+  font-style: normal;
+  font-size: 16px;
+}
+
+/* QR Code Section */
+.qr-code-section {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+  border: 2px solid #f7fafc;
+}
+
+.qr-code-wrapper {
+  text-align: center;
+}
+
+.qr-code-frame {
+  position: relative;
+  display: inline-block;
+  padding: 20px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  border: 3px solid #e2e8f0;
+}
+
+.qr-overlay-corners {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.corner {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border: 4px solid #667eea;
+}
+
+.corner.top-left {
+  top: 10px;
+  left: 10px;
+  border-right: none;
+  border-bottom: none;
+  border-radius: 8px 0 0 0;
+}
+
+.corner.top-right {
+  top: 10px;
+  right: 10px;
+  border-left: none;
+  border-bottom: none;
+  border-radius: 0 8px 0 0;
+}
+
+.corner.bottom-left {
+  bottom: 10px;
+  left: 10px;
+  border-right: none;
+  border-top: none;
+  border-radius: 0 0 0 8px;
+}
+
+.corner.bottom-right {
+  bottom: 10px;
+  right: 10px;
+  border-left: none;
+  border-top: none;
+  border-radius: 0 0 8px 0;
+}
+
+.qr-instructions {
+  margin-top: 20px;
+}
+
+.qr-instructions p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #4a5568;
+  font-weight: 500;
+}
+
+.qr-code-id {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* Visit Information Card */
+.visit-info-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 25px;
+  border: 2px solid #f7fafc;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+}
+
+.visit-info-card h4 {
+  margin: 0 0 20px;
+  font-size: 18px;
+  font-weight: 700;
+  color: #2d3748;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.info-item .label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #718096;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.info-item .value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.info-item .value.status {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  text-align: center;
+}
+
+.value.status.pending {
+  background: #fef5e7;
+  color: #d69e2e;
+}
+
+.value.status.confirmed {
+  background: #e6fffa;
+  color: #38a169;
+}
+
+.value.status.completed {
+  background: #e6fffa;
+  color: #38a169;
+}
+
+/* Modal Actions */
+.qr-modal-actions {
+  padding: 25px 30px 30px;
+  border-top: 2px solid #f7fafc;
+  background: #fafafa;
+  border-radius: 0 0 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.primary-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 140px;
+  justify-content: center;
+}
+
+.action-btn.primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.action-btn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.action-btn.secondary {
+  background: #ffffff;
+  color: #4a5568;
+  border: 2px solid #e2e8f0;
+}
+
+.action-btn.secondary:hover {
+  background: #f7fafc;
+  border-color: #cbd5e0;
+  transform: translateY(-1px);
+}
+
+.btn-icon {
+  font-size: 16px;
+}
+
+.btn-text {
+  font-weight: 600;
+}
+
+.share-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+}
+
+.share-label {
+  font-size: 14px;
+  color: #718096;
+  font-weight: 500;
+}
+
+.share-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.share-btn-mini {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid #e2e8f0;
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.share-btn-mini:hover {
+  background: #f7fafc;
+  border-color: #cbd5e0;
+  transform: scale(1.1);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .qr-modal-enhanced {
+    width: 95%;
+    margin: 10px;
+  }
+  
+  .qr-modal-header {
+    padding: 20px;
+  }
+  
+  .qr-modal-body {
+    padding: 20px;
+  }
+  
+  .visitor-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 15px;
+  }
+  
+  .visitor-meta {
+    align-items: center;
+  }
+  
+  .info-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .primary-actions {
+    flex-direction: column;
+  }
+  
+  .share-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+/* ===============================================
+   ENHANCED QR BUTTON STYLES
+   =============================================== */
+
+.qr-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 3px 12px rgba(102, 126, 234, 0.3);
+  min-width: 120px;
+  justify-content: center;
+}
+
+.qr-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+}
+
+.qr-btn:active {
+  transform: translateY(0);
+}
+
+.qr-btn-small {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  min-width: 80px;
+  justify-content: center;
+}
+
+.qr-btn-small:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.qr-btn-small:active {
+  transform: translateY(0);
+}
+
+/* Add QR icon to buttons */
+.qr-btn::before,
+.qr-btn-small::before {
+  content: "📱";
+  font-size: 14px;
+}
+
+.qr-btn-small::before {
+  font-size: 12px;
+}
+
+/* Visitor History Pagination Styles */
+.history-pagination-info {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.history-pagination-info p {
+  margin: 0;
+  color: #495057;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.history-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-pagination-button {
+  padding: 8px 16px;
+  border: 1px solid #007bff;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.history-pagination-button:not(:disabled) {
+  background: #007bff;
+  color: #fff;
+}
+
+.history-pagination-button:not(:disabled):hover {
+  background: #0056b3;
+  border-color: #0056b3;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
+}
+
+.history-pagination-button:disabled {
+  background: #f5f5f5;
+  color: #999;
+  cursor: not-allowed;
+  border-color: #ddd;
+}
+
+.history-pagination-page-info {
+  padding: 8px 12px;
+  background: #e9ecef;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #495057;
+  border: 1px solid #ced4da;
+}
+
+.history-bottom-pagination {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 15px;
+  margin-top: 15px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.history-pagination-number {
+  min-width: 40px;
+  height: 36px;
+  padding: 8px 12px;
+  border: 1px solid #007bff;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.history-pagination-number.active {
+  background: #007bff;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.4);
+}
+
+.history-pagination-number:not(.active) {
+  background: #fff;
+  color: #007bff;
+}
+
+.history-pagination-number:not(.active):hover {
+  background: #f8f9fa;
+  border-color: #0056b3;
+  transform: translateY(-1px);
+}
+
+.history-pagination-first-last {
+  padding: 8px 12px;
+  font-size: 12px;
+  min-width: 60px;
+}
+
+.history-pagination-prev-next {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+@media (max-width: 768px) {
+  .history-pagination-info {
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+  
+  .history-pagination-controls {
+    justify-content: center;
+  }
+  
+  .history-bottom-pagination {
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  
+  .history-pagination-button,
+  .history-pagination-number {
+    font-size: 12px;
+    padding: 6px 10px;
+    min-width: 32px;
+    height: 32px;
+  }
+}
+
+/* Visitor Logs Pagination Styles - Similar to History but slightly different colors */
+.visitor-logs-pagination-info {
+  background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+  border: 1px solid #cce7ff;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.visitor-logs-pagination-info p {
+  margin: 0;
+  color: #2c5282;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.visitor-logs-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.visitor-logs-pagination-button {
+  padding: 6px 12px;
+  border: 1px solid #2b6cb0;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  outline: none;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.visitor-logs-pagination-button:not(:disabled) {
+  background: #2b6cb0;
+  color: #fff;
+}
+
+.visitor-logs-pagination-button:not(:disabled):hover {
+  background: #2c5282;
+  border-color: #2c5282;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(43, 108, 176, 0.3);
+}
+
+.visitor-logs-pagination-button:disabled {
+  background: #f7fafc;
+  color: #a0aec0;
+  cursor: not-allowed;
+  border-color: #e2e8f0;
+}
+
+.visitor-logs-records-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.visitor-logs-records-selector label {
+  font-size: 14px;
+  color: #4a5568;
+  margin: 0;
+}
+
+.visitor-logs-records-selector select {
+  padding: 6px 10px;
+  border: 1px solid #cbd5e0;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #fff;
+  color: #2d3748;
+  cursor: pointer;
+}
+
+.visitor-logs-page-info {
+  padding: 6px 10px;
+  background: #e6f3ff;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #2c5282;
+  border: 1px solid #bee3f8;
+}
+
+@media (max-width: 768px) {
+  .visitor-logs-pagination-info {
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+  
+  .visitor-logs-pagination-controls {
+    justify-content: center;
+  }
+  
+  .visitor-logs-pagination-button {
+    font-size: 12px;
+    padding: 5px 10px;
+    min-height: 30px;
+  }
+  
+  .visitor-logs-records-selector {
+    justify-content: center;
+  }
+}

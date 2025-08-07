@@ -19,7 +19,11 @@ const dataURLtoBlob = (dataurl) => {
 const ScanCard1 = () => {
     const location = useLocation();
     const navigate = useNavigate();
-    const { hostName } = location.state || { hostName: 'Host' };
+    const { hostId, hostName, companyName } = location.state || { 
+        hostId: '', 
+        hostName: 'Host', 
+        companyName: '' 
+    };
 
     const [cardImage, setCardImage] = useState(null);
     const [extractedData, setExtractedData] = useState(null);
@@ -144,7 +148,14 @@ const ScanCard1 = () => {
             companyTel: extractedData.company_number,
         };
         console.log("Prefill Data:", prefillData);
-        navigate('/checkin', { state: { prefillData, hostName } });
+        navigate('/checkin', { 
+            state: { 
+                prefillData, 
+                hostId, 
+                hostName, 
+                companyName 
+            } 
+        });
     };
 
     return (

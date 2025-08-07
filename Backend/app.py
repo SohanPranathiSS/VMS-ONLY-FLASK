@@ -376,6 +376,72 @@ def debug_visits():
             'error': str(e)
         }), 500
 
+# Debug endpoint to check users data
+@app.route('/api/test-users', methods=['GET'])
+def test_users():
+    """Debug endpoint to check all users data and table structure"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        # Check users table schema
+        cursor.execute("DESCRIBE users")
+        users_schema = cursor.fetchall()
+        
+        # Get all users with their fields
+        cursor.execute("""
+            SELECT id, name, email, role, company_name, 
+                   mobile_number, department, designation, is_verified
+            FROM users
+            ORDER BY role, name
+        """)
+        all_users = cursor.fetchall()
+        
+        # Get count by role
+        cursor.execute("""
+            SELECT role, COUNT(*) as count 
+            FROM users 
+            GROUP BY role
+        """)
+        users_by_role = cursor.fetchall()
+        
+        # Get count by company
+        cursor.execute("""
+            SELECT company_name, COUNT(*) as count 
+            FROM users 
+            GROUP BY company_name
+        """)
+        users_by_company = cursor.fetchall()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({
+            'success': True,
+            'users_table_schema': [
+                {
+                    'Field': col['Field'],
+                    'Type': col['Type'],
+                    'Null': col['Null'],
+                    'Key': col['Key'],
+                    'Default': col['Default'],
+                    'Extra': col['Extra']
+                } for col in users_schema
+            ],
+            'total_users': len(all_users),
+            'users_by_role': users_by_role,
+            'users_by_company': users_by_company,
+            'all_users': all_users,
+            'sample_user': all_users[0] if all_users else None
+        })
+    except Exception as e:
+        logger.error(f"Test users failed: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'Test users failed',
+            'error': str(e)
+        }), 500
+
 # ============== AUTHENTICATION ENDPOINTS ==============
 
 @app.route('/api/register', methods=['POST'])
@@ -410,7 +476,7 @@ def register():
                     return jsonify({'message': 'Admin access required'}), 403
                 
                 # Validate required fields for host creation
-                required_fields = ['firstName', 'email', 'password']
+                required_fields = ['firstName', 'email', 'password', 'role', 'mobile_number', 'department', 'designation']
                 for field in required_fields:
                     if not data.get(field) or not str(data.get(field)).strip():
                         return jsonify({'message': f'{field} is required'}), 400
@@ -426,8 +492,15 @@ def register():
                 
                 email = data['email'].strip()
                 password = data['password']
-                role = 'host'  # Always create hosts when admin creates users
+                role = data['role'].lower()  # Use the role provided in request
+                mobile_number = data['mobile_number'].strip()
+                department = data['department'].strip()
+                designation = data['designation'].strip()
                 company_name = admin_user['company_name']
+                
+                # Validate role
+                if role not in ['admin', 'host']:
+                    return jsonify({'message': 'Invalid role. Must be Admin or Host.'}), 400
                 
                 # Check if user already exists
                 cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
@@ -444,23 +517,41 @@ def register():
                 # Get company_id from companies table using admin's user_id
                 admin_company_id = get_company_id_from_companies_table(admin_user['id'])
                 
-                # Insert new host user with is_verified = 1 (admin-created hosts are auto-verified)
+                # Add department and designation columns to users table if they don't exist
+                try:
+                    cursor.execute("ALTER TABLE users ADD COLUMN department VARCHAR(100) NULL")
+                    logger.info("Added department column to users table")
+                except Exception as alter_error:
+                    logger.debug(f"ALTER TABLE for department: {alter_error}")
+                
+                try:
+                    cursor.execute("ALTER TABLE users ADD COLUMN designation VARCHAR(100) NULL")
+                    logger.info("Added designation column to users table")
+                except Exception as alter_error:
+                    logger.debug(f"ALTER TABLE for designation: {alter_error}")
+                
+                # Insert new user with all fields including is_verified = 1 and is_active = 1 (admin-created users are auto-verified and active)
                 cursor.execute("""
-                    INSERT INTO users (name, email, password, role, company_name, company_id, is_verified)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """, (full_name, email, hashed_password, role, company_name, admin_company_id, 1))
+                    INSERT INTO users (name, email, password, role, company_name, company_id, mobile_number, department, designation, is_verified, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (full_name, email, hashed_password, role, company_name, admin_company_id, mobile_number, department, designation, 1, 1))
                 
                 user_id = cursor.lastrowid
                 cursor.close()
                 conn.close()
                 
                 return jsonify({
-                    'message': 'Host user created successfully and is ready to login immediately',
+                    'message': f'{role.title()} user created successfully and is ready to login immediately',
                     'userId': user_id,
                     'name': full_name,
                     'email': email,
                     'role': role,
-                    'verified': True
+                    'mobile_number': mobile_number,
+                    'department': department,
+                    'designation': designation,
+                    'company_name': company_name,
+                    'verified': True,
+                    'active': True
                 }), 201
                 
             except jwt.ExpiredSignatureError:
@@ -1554,7 +1645,7 @@ def get_visits():
 @app.route('/api/host-visits', methods=['GET'])
 @authenticate_token
 def get_host_visits():
-    """Get visits for the authenticated host"""
+    """Get visits for the authenticated host with pagination support"""
     try:
         user = request.current_user
         
@@ -1565,6 +1656,32 @@ def get_host_visits():
             return jsonify({'message': 'Host access required'}), 403
         
         host_id = user['id']
+        
+        # Get pagination parameters
+        page = request.args.get('page', 1, type=int)
+        limit = request.args.get('limit', 10, type=int)
+        
+        # Ensure reasonable limits
+        page = max(1, page)
+        limit = max(1, min(100, limit))  # Cap at 100 items per page
+        
+        offset = (page - 1) * limit
+        
+        # First, get the total count
+        count_query = """
+            SELECT COUNT(*) as total
+            FROM visits v
+            WHERE v.host_id = %s
+        """
+        
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(count_query, (host_id,))
+        total_result = cursor.fetchone()
+        total_visits = total_result['total'] if total_result else 0
+        
+        # Calculate total pages
+        total_pages = (total_visits + limit - 1) // limit if total_visits > 0 else 1
         
         # Use LEFT JOIN to ensure we get visits even if visitor record has issues
         # Use the visitor data stored directly in visits table as backup
@@ -1589,24 +1706,32 @@ def get_host_visits():
             LEFT JOIN users h ON v.host_id = h.id
             WHERE v.host_id = %s
             ORDER BY v.check_in_time DESC
+            LIMIT %s OFFSET %s
         """
         
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(query, (host_id,))
+        cursor.execute(query, (host_id, limit, offset))
         visits = cursor.fetchall()
         cursor.close()
         conn.close()
         
-        logger.info(f"Host {host_id} visits query returned {len(visits)} results")
+        logger.info(f"Host {host_id} visits query returned {len(visits)} results (page {page} of {total_pages}, total: {total_visits})")
         
         # Log a sample of the data for debugging
         if visits:
             logger.info(f"Sample visit data: {visits[0]}")
         else:
-            logger.warning(f"No visits found for host {host_id}")
+            logger.warning(f"No visits found for host {host_id} on page {page}")
         
-        return jsonify(visits), 200
+        # Return paginated response
+        response_data = {
+            'visits': visits,
+            'currentPage': page,
+            'totalPages': total_pages,
+            'totalVisits': total_visits,
+            'limit': limit
+        }
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         logger.error(f"Get host visits error: {e}")
@@ -2508,7 +2633,8 @@ def get_users():
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("""
-            SELECT u.id, u.name, u.email, u.role, u.company_name 
+            SELECT u.id, u.name, u.email, u.role, u.company_name, 
+                   u.mobile_number, u.department, u.designation, u.is_verified
             FROM users u
             WHERE u.company_name = %s
             ORDER BY u.role, u.name
@@ -4006,7 +4132,10 @@ def generate_visitor_badge(pre_registration_id):
     try:
         user = request.current_user
         
-        logger.info(f"Badge generation request for pre-registration ID: {pre_registration_id}")
+        # Check if photo should be included (for pre-registrations, default to False)
+        include_photo = request.args.get('includePhoto', 'false').lower() == 'true'
+        
+        logger.info(f"Badge generation request for pre-registration ID: {pre_registration_id}, includePhoto: {include_photo}")
         logger.info(f"User details: {user}")
         
         # Get pre-registration details
@@ -4114,10 +4243,10 @@ def generate_visitor_badge(pre_registration_id):
                     background: white;
                     margin: 15px;
                     border-radius: 12px;
-                    height: calc(100% - 30px);
+                    min-height: calc(100% - 50px);
                     position: relative;
                     box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
-                    padding: 25px 20px;
+                    padding: 25px 20px 20px 20px;
                 ">
                     <!-- Header Section -->
                     <div style="text-align: center; margin-bottom: 25px;">
@@ -4145,6 +4274,7 @@ def generate_visitor_badge(pre_registration_id):
                         ">{processed_data.get('company_to_visit', 'Company')}</div>
                     </div>
                     
+                    {f'''
                     <!-- Visitor Photo Section -->
                     <div style="text-align: center; margin-bottom: 25px;">
                         <div style="
@@ -4171,6 +4301,7 @@ def generate_visitor_badge(pre_registration_id):
                             </div>
                         </div>
                     </div>
+                    ''' if include_photo else ''}
                     
                     <!-- Visitor Information -->
                     <div style="text-align: center; margin-bottom: 25px;">
@@ -4289,29 +4420,26 @@ def generate_visitor_badge(pre_registration_id):
                     
                     <!-- Footer -->
                     <div style="
-                        position: absolute;
-                        bottom: 15px;
-                        left: 20px;
-                        right: 20px;
                         text-align: center;
                         font-size: 9px;
                         color: #a0aec0;
                         border-top: 1px solid #e2e8f0;
-                        padding-top: 8px;
+                        padding-top: 12px;
+                        margin-top: 20px;
                         background: white;
                     ">
-                        <div style="font-weight: 600;">ID: #{pre_registration_id}</div>
-                        <div style="margin-top: 2px;">Generated: {datetime.now().strftime('%d %b %Y, %H:%M')} by {user_name}</div>
+                        <div style="font-weight: 600; font-size: 11px; color: #4a5568;">ID: #{pre_registration_id}</div>
+                        <div style="margin-top: 4px; font-size: 8px;">Generated: {datetime.now().strftime('%d %b %Y, %H:%M')} by {user_name}</div>
                     </div>
                 </div>
                 
                 <!-- Security Strip -->
                 <div style="
                     position: absolute;
-                    bottom: 5px;
+                    bottom: 2px;
                     left: 5px;
                     right: 5px;
-                    height: 3px;
+                    height: 4px;
                     background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%);
                     border-radius: 0 0 10px 10px;
                 "></div>
