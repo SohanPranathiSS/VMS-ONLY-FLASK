@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { loginUser } from '../utils/apiService';
 
 import Footer from '../components/Footer';
+import Navbar from '../components/Navbar';
 import '../styles/LoginPage.css';
 
 const LoginPage = () => {
@@ -47,20 +48,12 @@ const LoginPage = () => {
 
   return (
     <div className="loginpage-outer">
-      <nav className="navbar">
-       <div className="navbar-logo">
-          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
-        </div>
-        <ul className="navbar-links">
-          <li><Link to="/">Home</Link></li>
-          <li><Link to="/products">Products</Link></li>
-          <li><Link to="/resources">Resources</Link></li>
-          <li><Link to="/aboutus">About Us</Link></li>
-          <li><Link to="/bookademo">Book a Demo</Link></li>
-          <li><Link to="/contactus">Contact Us</Link></li>
-          <li><Link to="/register" className="register-btn">Registration</Link></li>
-        </ul>
-      </nav>
+      <Navbar 
+        showAuthButtons={true}
+        showMainLinks={true}
+        isLoggedIn={false}
+        showOnlyRegister={true}
+      />
       <div className="login-container">
         <h2 className="login-title">Login</h2>
         <form className="login-form" onSubmit={handleSubmit}>

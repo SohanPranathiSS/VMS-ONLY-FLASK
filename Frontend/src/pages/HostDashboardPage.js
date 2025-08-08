@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getVisits, checkOutVisit } from '../utils/apiService';
 import HostFooter from '../components/HostFooter';
+import Navbar from '../components/Navbar';
 import Pagination from '../components/Pagination';
 import '../styles/HostDashboardPage.css';
 
@@ -122,25 +123,14 @@ const HostDashboardPage = () => {
 
   return (
     <div className="host-dashboard-bg">
-      <nav className="navbar">
-        {/* <div className="navbar-logo">Visitor Management</div> */}
-        <div className="navbar-logo">
-          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
-        </div>
-        <ul className="navbar-links">
-          {/* <li><Link to="/">Home</Link></li>
-          <li><Link to="/products">Products</Link></li>
-          <li><Link to="/resources">Resources</Link></li>
-          <li><Link to="/aboutus">About Us</Link></li>
-          <li><Link to="/bookademo">Book a Demo</Link></li>
-          <li><Link to="/contactus">Contact Us</Link></li> */}
-          <li>
-            <button onClick={handleLogout} className="logout-btn">
-              Logout
-            </button>
-          </li>
-        </ul>
-      </nav>
+      <Navbar 
+        showAuthButtons={false}
+        showMainLinks={false}
+        isLoggedIn={true}
+        onLogout={handleLogout}
+        showDashboardTitle={true}
+        dashboardTitle="Host Panel"
+      />
       <div className="host-dashboard-container">
         <div className="host-dashboard-header-modern">
           <div>

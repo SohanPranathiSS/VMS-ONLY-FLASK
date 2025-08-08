@@ -1,27 +1,13 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import '../styles/AboutUsPage.css';
 
 const AboutUsPage = () => {
   return (
     <div className="aboutus-container">
-      
-      <nav className="navbar">
-        <div className="navbar-logo">
-          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
-        </div>
-        <ul className="navbar-links">
-          <li><Link to="/">Home</Link></li>
-          <li><Link to="/products">Products</Link></li>
-          <li><Link to="/resources">Resources</Link></li>
-          <li><Link to="/aboutus">About Us</Link></li>
-          <li><Link to="/bookademo">Book a Demo</Link></li>
-          <li><Link to="/contactus">Contact Us</Link></li>
-          <li><a href="/register" className="register-btn">Registeration</a></li>
-          <li><Link to="/login" className="login-btn">Login</Link></li>
-        </ul>
-      </nav>
+      <Navbar showAuthButtons={true} />
 
       {/* Hero Section */}
       <header className="aboutus-hero">

@@ -31,6 +31,7 @@ import {
   restoreBackup
 } from '../utils/apiService';
 import AdminFooter from '../components/AdminFooter';
+import Navbar from '../components/Navbar';
 import { Bar, Doughnut, Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, LineElement, PointElement, Title, Tooltip, Legend, Filler } from 'chart.js';
 import { jsPDF } from 'jspdf';
@@ -3657,22 +3658,15 @@ const formatDuration = (minutes) => {
 
   return (
     <div className="admin-dashboard-bg">
-      <nav className="navbar">
-        {/* <div className="navbar-logo">Visitor Management</div>
-       */}
-       <div className="navbar-logo">
-          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
-        </div>
-        <ul className="navbar-links">
-          {/* <li><Link to="/">Home</Link></li>
-          <li><Link to="/products">Products</Link></li>
-          <li><Link to="/resources">Resources</Link></li>
-          <li><Link to="/aboutus">About Us</Link></li> 
-          <li><Link to="/bookademo">Book a Demo</Link></li>
-          <li><Link to="/contactus">Contact Us</Link></li> */}
-          <li><button onClick={handleLogout} className="login-btn">Logout</button></li>
-        </ul>
-      </nav>
+      {/* Responsive Navigation Bar */}
+      <Navbar 
+        isLoggedIn={true}
+        onLogout={handleLogout}
+        showMainLinks={false}
+        showAuthButtons={false}
+        showDashboardTitle={true}
+        dashboardTitle="Admin Panel"
+      />
       <div className="admin-dashboard-wrapper">
         <aside className="admin-sidebar">
           <h3 className="sidebar-title">Admin Panel</h3>

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { registerCompany } from '../utils/apiService'; // UPDATED
 import Footer from '../components/Footer';
+import Navbar from '../components/Navbar';
 import '../styles/RegistrationPage.css';
 
 const RegistrationPage = () => {
@@ -74,21 +75,12 @@ const RegistrationPage = () => {
         </div>
       )}
       
-      <nav className="navbar">
-        {/* Navbar remains the same */}
-        <div className="navbar-logo">
-          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
-        </div>
-        <ul className="navbar-links">
-          <li><Link to="/">Home</Link></li>
-          <li><Link to="/products">Products</Link></li>
-          <li><Link to="/resources">Resources</Link></li>
-          <li><Link to="/aboutus">About Us</Link></li>
-          <li><Link to="/bookademo">Book a Demo</Link></li>
-          <li><Link to="/contactus">Contact Us</Link></li>
-          <li><Link to="/login" className="login-btn">Login</Link></li>
-        </ul>
-      </nav>
+      <Navbar 
+        showAuthButtons={true}
+        showMainLinks={true}
+        isLoggedIn={false}
+        showOnlyLogin={true}
+      />
       <div className="registration-container">
         <form className="registration-form" onSubmit={handleSubmit}>
           <h2>Create Your Account</h2>

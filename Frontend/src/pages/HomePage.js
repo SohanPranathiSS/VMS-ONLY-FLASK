@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Link } from 'react-router-dom';
 import Footer from '../components/Footer';
+import Navbar from '../components/Navbar';
 import '../styles/HomePage.css';
 
 const HomePage = () => {
@@ -16,22 +16,11 @@ const HomePage = () => {
 
   return (
     <div className="home-container">
-      <nav className="navbar">
-        <div className="navbar-logo">
-          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
-        </div>
-        <ul className="navbar-links">
-          <li><a href="#home">Home</a></li>
-          <li><Link to="/products">Products</Link></li>
-          <li><Link to="/resources">Resources</Link></li>
-          <li><Link to="/aboutus">About Us</Link></li>
-          <li><a href="/bookademo">Book a Demo</a></li>
-          <li><a href="/contactus">Contact Us</a></li>
-          <li><a href="/register" className="register-btn">Registeration</a></li>
-          <li><a href="/login" className="login-btn">Login</a></li>
-
-        </ul>
-      </nav>
+      <Navbar 
+        showAuthButtons={true}
+        showMainLinks={true}
+        isLoggedIn={false}
+      />
       <section className="hero-section">
         <div className="hero-content">
           <div className="hero-left">

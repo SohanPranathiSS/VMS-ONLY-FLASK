@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import '../styles/BookDemoPage.css';
 
@@ -60,21 +61,7 @@ const BookDemoPage = () => {
   };
   return (
     <div className="bookdemo-container">
-      <nav className="navbar">
-      <div className="navbar-logo">
-          <img src="/assets/CompanyLogo5.png" alt="Visitor Management" className="logo-image" style={{ height: '40px', width: 'auto' }} />
-        </div>
-        <ul className="navbar-links">
-          <li><a href="/">Home</a></li>
-          <li><Link to="/products">Products</Link></li>
-          <li><Link to="/resources">Resources</Link></li>
-          <li><Link to="/aboutus">About Us</Link></li>
-          <li><Link to="/bookademo">Book a Demo</Link></li>
-          <li><a href="/contactus">Contact Us</a></li>
-          <li><a href="/register" className="register-btn">Registeration</a></li>
-          <li><a href="/login" className="login-btn">Login</a></li>
-        </ul>
-      </nav>
+      <Navbar showAuthButtons={true} />
       <header className="bookdemo-header">
         <h1>Book a Demo</h1>
         <p>Schedule a personalized demo to see how our Visitor Management System can benefit your organization.</p>

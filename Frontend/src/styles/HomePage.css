@@ -1,5 +1,18 @@
 /* HomePage.css */
 
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -11,68 +24,6 @@ body {
   min-height: 100vh;
   background: linear-gradient(135deg, #f8fafc 0%, #e0e7ef 100%);
 }
-
-/* Navbar */
-.navbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.2rem 3rem;
-  background: #1a2236;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
-}
-
-.navbar-logo {
-  color: #fff;
-  font-size: 1.7rem;
-  font-weight: 700;
-  letter-spacing: 1px;
-}
-
-.navbar-links {
-  list-style: none;
-  display: flex;
-  gap: 2.2rem;
-  margin: 0;
-  padding: 0;
-}
-
-.navbar-links li a {
-  color: #e0e7ef;
-  text-decoration: none;
-  font-size: 1.1rem;
-  font-weight: 500;
-  transition: color 0.2s;
-  padding: 0.3rem 0.7rem;
-  border-radius: 4px;
-}
-
-.navbar-links li a:hover,
-.navbar-links li .login-btn:hover {
-  color: #1a2236;
-  background: #e0e7ef;
-}
-
-.register-btn {
-  background: #4f8cff;
-  color: #fff !important;
-  padding: 0.3rem 1.1rem;
-  border-radius: 20px;
-  font-weight: 600;
-  box-shadow: 0 2px 6px rgba(79, 140, 255, 0.08);
-  transition: background 0.2s, color 0.2s;
-}
-
-.login-btn {
-  background: #4f8cff;
-  color: #fff !important;
-  padding: 0.3rem 1.1rem;
-  border-radius: 20px;
-  font-weight: 600;
-  box-shadow: 0 2px 6px rgba(79, 140, 255, 0.08);
-  transition: background 0.2s, color 0.2s;
-}
-
 
 /* Hero Section */
 .hero-section {
@@ -222,14 +173,6 @@ body {
   }
 }
 @media (max-width: 700px) {
-  .navbar {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 1rem 1.2rem;
-  }
-  .navbar-links {
-    gap: 1.2rem;
-  }
   .hero-section {
     margin-top: 4rem;
   }
