@@ -1,0 +1,417 @@
+.pricing-page {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: #333;
+}
+
+.pricing-hero {
+  background-color: #f5f8ff;
+  padding: 100px 0 60px;
+  text-align: center;
+}
+
+.pricing-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.pricing-hero h1 {
+  font-size: 42px;
+  margin-bottom: 16px;
+  color: #2c3e50;
+}
+
+.pricing-hero p {
+  font-size: 18px;
+  color: #7f8c8d;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.pricing-plans {
+  padding: 80px 0;
+  background-color: #fff;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 30px;
+  margin-top: 40px;
+}
+
+.pricing-card {
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+  overflow: hidden;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  background-color: #fff;
+  position: relative;
+}
+
+.pricing-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.pricing-card.featured {
+  border: 2px solid #3498db;
+  transform: scale(1.05);
+}
+
+.pricing-card.featured:hover {
+  transform: translateY(-5px) scale(1.05);
+}
+
+.popular-tag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background-color: #3498db;
+  color: white;
+  padding: 5px 12px;
+  border-radius: 15px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.pricing-card-header {
+  padding: 30px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+  background-color: #fafafa;
+}
+
+.pricing-card-header h3 {
+  margin: 0;
+  font-size: 24px;
+  color: #2c3e50;
+}
+
+.pricing-price {
+  margin: 20px 0 10px;
+}
+
+.price {
+  font-size: 36px;
+  font-weight: bold;
+  color: #3498db;
+}
+
+.period {
+  font-size: 16px;
+  color: #7f8c8d;
+}
+
+.pricing-card-header p {
+  color: #7f8c8d;
+  margin: 10px 0 0;
+  font-size: 14px;
+}
+
+.pricing-card-body {
+  padding: 30px;
+}
+
+.pricing-features {
+  list-style-type: none;
+  padding: 0;
+  margin: 0 0 30px;
+}
+
+.pricing-features li {
+  margin-bottom: 15px;
+  position: relative;
+  padding-left: 5px;
+  font-size: 15px;
+}
+
+.pricing-btn {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid #3498db;
+  background-color: transparent;
+  color: #3498db;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+
+.pricing-btn:hover {
+  background-color: #3498db;
+  color: white;
+}
+
+.pricing-btn.primary {
+  background-color: #3498db;
+  color: white;
+}
+
+.pricing-btn.primary:hover {
+  background-color: #2980b9;
+}
+
+.razorpay-payment-button {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  border-radius: 6px;
+  border: none;
+  background-color: #7357ff;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+}
+
+.razorpay-payment-button:hover {
+  background-color: #5f44e3;
+  box-shadow: 0 4px 12px rgba(115, 87, 255, 0.3);
+}
+
+/* Payment Success Message Styling */
+.payment-success-message {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.payment-success-inner {
+  background-color: #fff;
+  padding: 30px;
+  border-radius: 8px;
+  text-align: center;
+  width: 100%;
+  max-width: 500px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
+
+.payment-success-icon {
+  background-color: #4CAF50;
+  color: white;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 30px;
+}
+
+.payment-success-inner h3 {
+  font-size: 24px;
+  margin-bottom: 15px;
+  color: #333;
+}
+
+.payment-success-inner p {
+  margin-bottom: 10px;
+  color: #666;
+}
+
+.payment-success-button {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  padding: 12px 25px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  margin-top: 20px;
+  transition: background-color 0.3s ease;
+}
+
+.payment-success-button:hover {
+  background-color: #2980b9;
+}
+
+/* Payment Error Styling */
+.payment-error-inner {
+  border-top: 4px solid #e74c3c;
+}
+
+.payment-error-icon {
+  background-color: #e74c3c;
+  color: white;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 30px;
+}
+
+.payment-success-inner small {
+  display: block;
+  color: #999;
+  margin-top: 10px;
+  font-style: italic;
+}
+
+.pricing-faq {
+  padding: 80px 0;
+  background-color: #f5f8ff;
+}
+
+.pricing-faq h2 {
+  text-align: center;
+  margin-bottom: 40px;
+  color: #2c3e50;
+  font-size: 32px;
+}
+
+.faq-categories {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.faq-category-btn {
+  padding: 10px 20px;
+  background: transparent;
+  border: 1px solid #3498db;
+  color: #3498db;
+  border-radius: 30px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.faq-category-btn:hover {
+  background-color: rgba(52, 152, 219, 0.1);
+}
+
+.faq-category-btn.active {
+  background-color: #3498db;
+  color: white;
+}
+
+.faq-grid {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.faq-section {
+  display: none;
+}
+
+.faq-section.active {
+  display: block;
+}
+
+.faq-item {
+  margin-bottom: 15px;
+  border-radius: 8px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+  background-color: white;
+  overflow: hidden;
+}
+
+.faq-question {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 25px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.faq-question:hover {
+  background-color: rgba(52, 152, 219, 0.05);
+}
+
+.faq-question h3 {
+  font-size: 18px;
+  margin: 0;
+  color: #2c3e50;
+  font-weight: 500;
+}
+
+.faq-toggle {
+  font-size: 24px;
+  color: #3498db;
+  transition: transform 0.3s ease;
+}
+
+.faq-item.active .faq-toggle {
+  transform: rotate(45deg);
+}
+
+.faq-answer {
+  padding: 0 25px;
+  max-height: 0;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.faq-item.active .faq-answer {
+  padding: 5px 25px 20px;
+  max-height: 500px;
+}
+
+.faq-answer p {
+  color: #7f8c8d;
+  line-height: 1.7;
+  margin: 0;
+  font-size: 15px;
+}
+
+.faq-contact {
+  text-align: center;
+  margin-top: 50px;
+  padding: 30px;
+  background-color: #e8f4fc;
+  border-radius: 8px;
+}
+
+.faq-contact p {
+  margin: 0;
+  font-size: 16px;
+  color: #2c3e50;
+}
+
+.faq-contact a {
+  color: #3498db;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.faq-contact a:hover {
+  text-decoration: underline;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .pricing-card.featured {
+    transform: none;
+    order: -1;
+  }
+  
+  .pricing-card.featured:hover {
+    transform: translateY(-5px);
+  }
+  
+  .faq-grid {
+    grid-template-columns: 1fr;
+  }
+}

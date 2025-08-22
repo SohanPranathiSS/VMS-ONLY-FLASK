@@ -1,0 +1,53 @@
+{
+  "name": "visitor-management-system",
+  "version": "3.0.0",
+  "description": "Comprehensive visitor management system with AI-powered ID card detection",
+  "private": true,
+  "workspaces": [
+    "Frontend"
+  ],
+  "scripts": {
+    "install:all": "npm install && cd Frontend && npm install",
+    "start:frontend": "cd Frontend && npm start",
+    "build:frontend": "cd Frontend && npm run build",
+    "test:frontend": "cd Frontend && npm test",
+    "test:all": "cd Frontend && npm run test:coverage",
+    "dev": "concurrently \"npm run start:backend\" \"npm run start:ml\" \"npm run start:frontend\"",
+    "start:backend": "cd Backend && python run.py",
+    "start:ml": "cd ML && python run.py",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "clean": "cd Frontend && rm -rf node_modules package-lock.json && npm install",
+    "setup:env": "bash config/setup-env.sh",
+    "setup:env:dev": "bash config/setup-env.sh development",
+    "setup:env:prod": "bash config/setup-env.sh production",
+    "setup:env:test": "bash config/setup-env.sh testing",
+    "validate:env": "node config/validate-env.js",
+    "validate:env:frontend": "node config/validate-env.js --service=frontend",
+    "validate:env:backend": "node config/validate-env.js --service=backend",
+    "validate:env:ml": "node config/validate-env.js --service=ml"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "keywords": [
+    "visitor-management",
+    "ai",
+    "id-card-detection",
+    "react",
+    "flask",
+    "qr-code",
+    "machine-learning"
+  ],
+  "author": "SohanPranathiSS",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SohanPranathiSS/visitor-management-system-Version-3.git"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}

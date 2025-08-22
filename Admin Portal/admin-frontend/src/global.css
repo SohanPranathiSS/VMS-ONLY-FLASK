@@ -1,0 +1,11 @@
+/* Lock the page to viewport height; allow only main content to scroll */
+html, body, #root { height: 100%; margin: 0; padding: 0; }
+body { overflow: hidden; }
+/* PrimeReact table wrappers should not force page scrolls */
+.p-datatable-wrapper { max-height: none; }
+
+/* Simple pulse for loading skeletons */
+@keyframes pulse {
+	0%, 100% { opacity: 0.6; }
+	50% { opacity: 1; }
+}

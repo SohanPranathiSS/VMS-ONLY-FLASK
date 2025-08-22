@@ -1,0 +1,58 @@
+# Development Environment Configuration Template
+# Copy this file to .env and fill in your actual values
+
+# =============================================================================
+# DATABASE CONFIGURATION
+# =============================================================================
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_mysql_password_here
+DB_NAME=vms_db
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# =============================================================================
+JWT_SECRET=your-super-secret-jwt-key-change-this-in-production-make-it-long-and-random
+
+# =============================================================================
+# EMAIL CONFIGURATION (for verification emails)
+# =============================================================================
+# Gmail SMTP Configuration
+EMAIL_USER=your-gmail@gmail.com
+EMAIL_PASS=your-gmail-app-password
+
+# Admin email for notifications
+ADMIN_EMAIL=admin@yourcompany.com
+
+# =============================================================================
+# AI/ML CONFIGURATION
+# =============================================================================
+# Google AI API Key for document processing
+GOOGLE_API_KEY=your-google-ai-api-key-here
+
+# =============================================================================
+# FLASK CONFIGURATION (optional)
+# =============================================================================
+FLASK_HOST=0.0.0.0
+FLASK_PORT=4000
+FLASK_DEBUG=True
+
+# =============================================================================
+# PRODUCTION CONFIGURATION (when deploying)
+# =============================================================================
+# Set to False in production
+# FLASK_DEBUG=False
+
+# Use a strong random secret in production
+# JWT_SECRET=your-production-jwt-secret-should-be-very-long-and-random
+
+# Use environment-specific database settings
+# DB_HOST=your-production-db-host
+# DB_PASSWORD=your-production-db-password
+
+# =============================================================================
+# PAYMENT GATEWAY (Razorpay)
+# =============================================================================
+# These are required to fetch payment details (method, payer email) after checkout
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
